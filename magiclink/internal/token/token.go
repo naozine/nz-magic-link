@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"nz-magic-link/magiclink/internal/db"
+	"github.com/naozine/nz-magic-link/magiclink/internal/db"
 )
 
 // Manager handles token generation and validation.

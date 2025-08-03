@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
 
-	"nz-magic-link/magiclink"
+	"github.com/naozine/nz-magic-link/magiclink"
 )
 
 // TemplateRenderer Template renderer for Echo
