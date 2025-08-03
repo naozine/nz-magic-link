@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"mime"
 	"net/smtp"
 	"text/template"
 )
@@ -67,6 +68,13 @@ func (s *Sender) SendMagicLink(to, token string, expiryMinutes int) error {
 	// Prepare the magic link
 	magicLink := fmt.Sprintf("%s%s?token=%s", s.Config.ServerAddr, s.Config.VerifyURL, token)
 
+	// Encode the FromName for email headers if it contains non-ASCII characters
+	encodedFromName := s.Config.FromName
+	if s.Config.FromName != mime.BEncoding.Encode("UTF-8", s.Config.FromName) {
+		// Only encode if it contains non-ASCII characters
+		encodedFromName = mime.BEncoding.Encode("UTF-8", s.Config.FromName)
+	}
+
 	// Prepare the email data
 	data := struct {
 		From          string
@@ -76,7 +84,7 @@ func (s *Sender) SendMagicLink(to, token string, expiryMinutes int) error {
 		ExpiryMinutes int
 	}{
 		From:          s.Config.From,
-		FromName:      s.Config.FromName,
+		FromName:      encodedFromName,
 		To:            to,
 		MagicLink:     magicLink,
 		ExpiryMinutes: expiryMinutes,
