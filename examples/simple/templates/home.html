@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Link Authentication Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .btn {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .btn:hover {
+            background: #45a049;
+        }
+        .btn-logout {
+            background: #f44336;
+        }
+        .btn-logout:hover {
+            background: #d32f2f;
+        }
+    </style>
+</head>
+<body>
+    <h1>Magic Link Authentication Example</h1>
+    
+    <div class="container">
+        {{if .authenticated}}
+            <h2>Welcome, {{.userID}}!</h2>
+            <p>You are currently logged in.</p>
+            <a href="/dashboard" class="btn">Go to Dashboard</a>
+            <form action="/auth/logout" method="post" style="display: inline;">
+                <button type="submit" class="btn btn-logout">Logout</button>
+            </form>
+        {{else}}
+            <h2>Welcome, Guest!</h2>
+            <p>You are not logged in. Please login to access the dashboard.</p>
+            <a href="/login" class="btn">Login</a>
+        {{end}}
+    </div>
+
+    <div class="container">
+        <h2>About This Example</h2>
+        <p>This is a simple example of passwordless authentication using magic links. The authentication flow works as follows:</p>
+        <ol>
+            <li>User enters their email address</li>
+            <li>A magic link is sent to the user's email</li>
+            <li>User clicks the magic link</li>
+            <li>User is authenticated and a session is created</li>
+        </ol>
+        <p>The library handles all the security aspects, including:</p>
+        <ul>
+            <li>Secure token generation</li>
+            <li>Token expiration</li>
+            <li>Rate limiting</li>
+            <li>Secure session management</li>
+        </ul>
+    </div>
+</body>
+</html>
