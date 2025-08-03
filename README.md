@@ -107,6 +107,7 @@ config := magiclink.DefaultConfig()
 - `LoginURL`: URL for the login endpoint (default: "/auth/login")
 - `VerifyURL`: URL for the verification endpoint (default: "/auth/verify")
 - `RedirectURL`: URL to redirect to after successful verification (default: "/")
+- `LogoutRedirectURL`: URL to redirect to after successful logout (default: "/")
 
 ### Rate Limiting
 
@@ -130,7 +131,7 @@ ml.RegisterHandlers(e)
 This registers the following endpoints:
 - `POST /auth/login`: Accepts an email address and sends a magic link
 - `GET /auth/verify`: Verifies a token from a magic link and creates a session
-- `POST /auth/logout`: Logs out the user by invalidating their session
+- `POST /auth/logout`: Logs out the user by invalidating their session and redirects to the configured URL. You can override the redirect URL by adding a `redirect` query parameter (e.g., `/auth/logout?redirect=/login`)
 
 ### Authentication Middleware
 

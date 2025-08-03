@@ -74,7 +74,9 @@ func AuthMiddleware(sessionManager *session.Manager) echo.MiddlewareFunc {
 }
 
 // LogoutHandler handles user logout by invalidating the session.
-func LogoutHandler(sessionManager *session.Manager) echo.HandlerFunc {
+// It accepts a redirectURL parameter to redirect the user after successful logout.
+// The redirectURL can be overridden by a "redirect" query parameter.
+func LogoutHandler(sessionManager *session.Manager, redirectURL string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Invalidate the session
 		err := sessionManager.Invalidate(c)
@@ -82,6 +84,18 @@ func LogoutHandler(sessionManager *session.Manager) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to logout",
 			})
+		}
+
+		// Check if there's a redirect query parameter
+		queryRedirect := c.QueryParam("redirect")
+		if queryRedirect != "" {
+			// Override the default redirect URL with the query parameter
+			redirectURL = queryRedirect
+		}
+
+		// Redirect to the specified URL or return a success response
+		if redirectURL != "" {
+			return c.Redirect(http.StatusFound, redirectURL)
 		}
 
 		return c.JSON(http.StatusOK, map[string]string{
