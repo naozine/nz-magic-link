@@ -21,24 +21,27 @@ type Config struct {
 	DatabasePath string
 
 	// Email configuration
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUsername string
-	SMTPPassword string
-	SMTPFrom     string
-	SMTPFromName string
+	SMTPHost        string
+	SMTPPort        int
+	SMTPUsername    string
+	SMTPPassword    string
+	SMTPFrom        string
+	SMTPFromName    string
+	SMTPUseTLS      bool // Use TLS from the start (port 465)
+	SMTPUseSTARTTLS bool // Use STARTTLS (port 587)
+	SMTPSkipVerify  bool // Skip TLS certificate verification
 
 	// Token configuration
 	TokenExpiry time.Duration
 
 	// Session configuration
-	SessionExpiry   time.Duration
-	CookieName      string
-	CookieSecure    bool
-	CookieHTTPOnly  bool
-	CookieSameSite  string
-	CookieDomain    string
-	CookiePath      string
+	SessionExpiry  time.Duration
+	CookieName     string
+	CookieSecure   bool
+	CookieHTTPOnly bool
+	CookieSameSite string
+	CookieDomain   string
+	CookiePath     string
 
 	// URL configuration
 	LoginURL      string
@@ -57,6 +60,9 @@ func DefaultConfig() Config {
 	return Config{
 		DatabasePath:     "magiclink.db",
 		SMTPPort:         587,
+		SMTPUseSTARTTLS:  true, // Default to STARTTLS for port 587
+		SMTPUseTLS:       false,
+		SMTPSkipVerify:   false,
 		TokenExpiry:      30 * time.Minute,
 		SessionExpiry:    7 * 24 * time.Hour, // 7 days
 		CookieName:       "session",
@@ -102,15 +108,18 @@ func New(config Config) (*MagicLink, error) {
 
 	// Initialize the email sender
 	emailConfig := email.Config{
-		Host:       config.SMTPHost,
-		Port:       config.SMTPPort,
-		Username:   config.SMTPUsername,
-		Password:   config.SMTPPassword,
-		From:       config.SMTPFrom,
-		FromName:   config.SMTPFromName,
-		Template:   config.EmailTemplate,
-		VerifyURL:  config.VerifyURL,
-		ServerAddr: config.ServerAddr,
+		Host:          config.SMTPHost,
+		Port:          config.SMTPPort,
+		Username:      config.SMTPUsername,
+		Password:      config.SMTPPassword,
+		From:          config.SMTPFrom,
+		FromName:      config.SMTPFromName,
+		Template:      config.EmailTemplate,
+		VerifyURL:     config.VerifyURL,
+		ServerAddr:    config.ServerAddr,
+		UseTLS:        config.SMTPUseTLS,
+		UseSTARTTLS:   config.SMTPUseSTARTTLS,
+		SkipTLSVerify: config.SMTPSkipVerify,
 	}
 	emailSender := email.New(emailConfig)
 

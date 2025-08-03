@@ -13,12 +13,12 @@ import (
 	"nz-magic-link/magiclink"
 )
 
-// Template renderer for Echo
+// TemplateRenderer Template renderer for Echo
 type TemplateRenderer struct {
 	templates *template.Template
 }
 
-func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
 	return t.templates.ExecuteTemplate(w, name, data)
 }
 
@@ -40,9 +40,12 @@ func main() {
 	// Create a default configuration for MagicLink
 	config := magiclink.DefaultConfig()
 
-	// Configure SMTP settings from environment variables
+	// Configure SMTP settings for port 465 (SSL/TLS)
 	config.SMTPHost = getEnv("SMTP_HOST", "smtp.example.com")
-	config.SMTPPort = 587
+	config.SMTPPort = 587         // Use port 465 for SSL/TLS
+	config.SMTPUseTLS = false     // Enable TLS from start for port 465
+	config.SMTPUseSTARTTLS = true // Disable STARTTLS when using port 465
+	config.SMTPSkipVerify = false // Set to true for self-signed certificates
 	config.SMTPUsername = getEnv("SMTP_USERNAME", "your-email@example.com")
 	config.SMTPPassword = getEnv("SMTP_PASSWORD", "your-password")
 	config.SMTPFrom = getEnv("SMTP_FROM", "your-email@example.com")
