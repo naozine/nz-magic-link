@@ -90,7 +90,7 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 		}
 
 		// Generate a token
-		token, err := tokenManager.Generate(req.Email)
+		token0, err := tokenManager.Generate(req.Email)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to generate token",
@@ -98,7 +98,7 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 		}
 
 		// Send the magic link
-		err = emailSender.SendMagicLink(req.Email, token, int(tokenManager.TokenExpiry.Minutes()))
+		err = emailSender.SendMagicLink(req.Email, token0, int(tokenManager.TokenExpiry.Minutes()))
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send magic link",
