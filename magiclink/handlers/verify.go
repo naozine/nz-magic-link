@@ -5,8 +5,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"nz-magic-link/magiclink/internal/session"
-	"nz-magic-link/magiclink/internal/token"
+	"github.com/naozine/nz-magic-link/magiclink/internal/session"
+	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
 // VerifyHandler handles the verification of magic links.

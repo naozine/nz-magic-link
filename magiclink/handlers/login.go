@@ -10,8 +10,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"golang.org/x/time/rate"
 
-	"nz-magic-link/magiclink/internal/email"
-	"nz-magic-link/magiclink/internal/token"
+	"github.com/naozine/nz-magic-link/magiclink/internal/email"
+	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
 // LoginRequest represents the request body for the login endpoint.

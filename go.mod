@@ -1,4 +1,4 @@
-module nz-magic-link
+module github.com/naozine/nz-magic-link
 
 go 1.24
 

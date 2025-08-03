@@ -8,11 +8,11 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"nz-magic-link/magiclink/handlers"
-	"nz-magic-link/magiclink/internal/db"
-	"nz-magic-link/magiclink/internal/email"
-	"nz-magic-link/magiclink/internal/session"
-	"nz-magic-link/magiclink/internal/token"
+	"github.com/naozine/nz-magic-link/magiclink/handlers"
+	"github.com/naozine/nz-magic-link/magiclink/internal/db"
+	"github.com/naozine/nz-magic-link/magiclink/internal/email"
+	"github.com/naozine/nz-magic-link/magiclink/internal/session"
+	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
 // Config holds the configuration for the magic link authentication system.

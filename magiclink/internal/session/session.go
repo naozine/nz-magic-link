@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"nz-magic-link/magiclink/internal/db"
+	"github.com/naozine/nz-magic-link/magiclink/internal/db"
 )
 
 // Config holds the configuration for session management.
