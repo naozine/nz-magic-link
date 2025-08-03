@@ -3,6 +3,7 @@ package email
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"net/smtp"
 	"text/template"
@@ -19,6 +20,10 @@ type Config struct {
 	Template   string
 	VerifyURL  string
 	ServerAddr string
+	// TLS configuration
+	UseTLS        bool // Use TLS from the start (port 465)
+	UseSTARTTLS   bool // Use STARTTLS (port 587)
+	SkipTLSVerify bool // Skip TLS certificate verification
 }
 
 // DefaultTemplate is the default email template for magic links.
@@ -89,12 +94,76 @@ func (s *Sender) SendMagicLink(to, token string, expiryMinutes int) error {
 		return fmt.Errorf("failed to execute email template: %w", err)
 	}
 
+	// Send the email based on configuration
+	if s.Config.UseTLS {
+		return s.sendWithTLS(to, body.Bytes())
+	} else {
+		return s.sendWithSTARTTLS(to, body.Bytes())
+	}
+}
+
+// sendWithTLS sends email using TLS from the start (port 465)
+func (s *Sender) sendWithTLS(to string, body []byte) error {
+	addr := fmt.Sprintf("%s:%d", s.Config.Host, s.Config.Port)
+
+	// Create TLS configuration
+	tlsConfig := &tls.Config{
+		ServerName:         s.Config.Host,
+		InsecureSkipVerify: s.Config.SkipTLSVerify,
+	}
+
+	// Dial with TLS
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("failed to connect with TLS: %w", err)
+	}
+	defer conn.Close()
+
+	// Create SMTP client
+	client, err := smtp.NewClient(conn, s.Config.Host)
+	if err != nil {
+		return fmt.Errorf("failed to create SMTP client: %w", err)
+	}
+	defer client.Quit()
+
+	// Authenticate
+	auth := smtp.PlainAuth("", s.Config.Username, s.Config.Password, s.Config.Host)
+	if err := client.Auth(auth); err != nil {
+		return fmt.Errorf("SMTP authentication failed: %w", err)
+	}
+
+	// Set sender
+	if err := client.Mail(s.Config.From); err != nil {
+		return fmt.Errorf("failed to set sender: %w", err)
+	}
+
+	// Set recipient
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("failed to set recipient: %w", err)
+	}
+
+	// Send message
+	writer, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("failed to get data writer: %w", err)
+	}
+	defer writer.Close()
+
+	if _, err := writer.Write(body); err != nil {
+		return fmt.Errorf("failed to write message body: %w", err)
+	}
+
+	return nil
+}
+
+// sendWithSTARTTLS sends email using STARTTLS (port 587)
+func (s *Sender) sendWithSTARTTLS(to string, body []byte) error {
 	// Set up authentication
 	auth := smtp.PlainAuth("", s.Config.Username, s.Config.Password, s.Config.Host)
 
 	// Send the email
 	addr := fmt.Sprintf("%s:%d", s.Config.Host, s.Config.Port)
-	err = smtp.SendMail(addr, auth, s.Config.From, []string{to}, body.Bytes())
+	err := smtp.SendMail(addr, auth, s.Config.From, []string{to}, body)
 	if err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
