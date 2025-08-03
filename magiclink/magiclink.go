@@ -44,11 +44,12 @@ type Config struct {
 	CookiePath     string
 
 	// URL configuration
-	LoginURL      string
-	VerifyURL     string
-	RedirectURL   string
-	EmailTemplate string
-	ServerAddr    string
+	LoginURL          string
+	VerifyURL         string
+	RedirectURL       string
+	LogoutRedirectURL string
+	EmailTemplate     string
+	ServerAddr        string
 
 	// Rate limiting
 	MaxLoginAttempts int
@@ -58,24 +59,25 @@ type Config struct {
 // DefaultConfig returns a Config with sensible default values.
 func DefaultConfig() Config {
 	return Config{
-		DatabasePath:     "magiclink.db",
-		SMTPPort:         587,
-		SMTPUseSTARTTLS:  true, // Default to STARTTLS for port 587
-		SMTPUseTLS:       false,
-		SMTPSkipVerify:   false,
-		TokenExpiry:      30 * time.Minute,
-		SessionExpiry:    7 * 24 * time.Hour, // 7 days
-		CookieName:       "session",
-		CookieSecure:     true,
-		CookieHTTPOnly:   true,
-		CookieSameSite:   "lax",
-		CookiePath:       "/",
-		LoginURL:         "/auth/login",
-		VerifyURL:        "/auth/verify",
-		RedirectURL:      "/",
-		ServerAddr:       "http://localhost:8080",
-		MaxLoginAttempts: 5,
-		RateLimitWindow:  15 * time.Minute,
+		DatabasePath:      "magiclink.db",
+		SMTPPort:          587,
+		SMTPUseSTARTTLS:   true, // Default to STARTTLS for port 587
+		SMTPUseTLS:        false,
+		SMTPSkipVerify:    false,
+		TokenExpiry:       30 * time.Minute,
+		SessionExpiry:     7 * 24 * time.Hour, // 7 days
+		CookieName:        "session",
+		CookieSecure:      true,
+		CookieHTTPOnly:    true,
+		CookieSameSite:    "lax",
+		CookiePath:        "/",
+		LoginURL:          "/auth/login",
+		VerifyURL:         "/auth/verify",
+		RedirectURL:       "/",
+		LogoutRedirectURL: "/",
+		ServerAddr:        "http://localhost:8080",
+		MaxLoginAttempts:  5,
+		RateLimitWindow:   15 * time.Minute,
 	}
 }
 
@@ -163,7 +165,10 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 	))
 
 	// Register the logout handler
-	e.POST("/auth/logout", handlers.LogoutHandler(m.SessionManager))
+	e.POST("/auth/logout", handlers.LogoutHandler(
+		m.SessionManager,
+		m.Config.LogoutRedirectURL,
+	))
 }
 
 // AuthMiddleware returns a middleware that checks if the user is authenticated.

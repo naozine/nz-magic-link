@@ -14,62 +14,34 @@ A simple, secure passwordless authentication library for Go applications using t
 ## Installation
 
 ```bash
-go get github.com/yourusername/nz-magic-link
+go get github.com/naozine/nz-magic-link
 ```
 
 ## Quick Start
 
-```go
-package main
+For a complete working example, please refer to the [examples/simple](examples/simple) directory in the repository. This example demonstrates:
 
-import (
-    "github.com/labstack/echo/v4"
-    "github.com/yourusername/nz-magic-link/magiclink"
-)
+- Setting up an Echo server with the magic link authentication system
+- Configuring SMTP settings for sending emails
+- Creating public and protected routes
+- Using HTML templates for login and dashboard pages
+- Handling environment variables for configuration
 
-func main() {
-    // Create a new Echo instance
-    e := echo.New()
+Here's a brief overview of how to use the library:
 
-    // Create a default configuration
-    config := magiclink.DefaultConfig()
-    
-    // Configure SMTP settings for sending emails
-    config.SMTPHost = "smtp.example.com"
-    config.SMTPPort = 587
-    config.SMTPUsername = "your-email@example.com"
-    config.SMTPPassword = "your-password"
-    config.SMTPFrom = "your-email@example.com"
-    config.SMTPFromName = "Your App Name"
-    config.ServerAddr = "https://yourapp.com"  // Used for constructing magic links
+1. Create a new Echo instance
+2. Configure the MagicLink instance with your SMTP settings
+3. Register the authentication handlers
+4. Create protected routes using the authentication middleware
+5. Start the server
 
-    // Create a new MagicLink instance
-    ml, err := magiclink.New(config)
-    if err != nil {
-        e.Logger.Fatal(err)
-    }
-
-    // Register the authentication handlers
-    ml.RegisterHandlers(e)
-
-    // Create a protected route
-    protected := e.Group("/protected")
-    protected.Use(ml.AuthMiddleware())
-    protected.GET("", func(c echo.Context) error {
-        userID, _ := ml.GetUserID(c)
-        return c.String(200, "Hello, "+userID+"!")
-    })
-
-    // Start the server
-    e.Logger.Fatal(e.Start(":8080"))
-}
-```
+The example in the repository provides a more comprehensive implementation that you can use as a starting point for your own application.
 
 ## Configuration
 
 The library can be configured using the `Config` struct:
 
-```go
+```
 config := magiclink.DefaultConfig()
 ```
 
@@ -107,6 +79,7 @@ config := magiclink.DefaultConfig()
 - `LoginURL`: URL for the login endpoint (default: "/auth/login")
 - `VerifyURL`: URL for the verification endpoint (default: "/auth/verify")
 - `RedirectURL`: URL to redirect to after successful verification (default: "/")
+- `LogoutRedirectURL`: URL to redirect to after successful logout (default: "/")
 
 ### Rate Limiting
 
@@ -117,42 +90,42 @@ config := magiclink.DefaultConfig()
 
 ### Creating a New Instance
 
-```go
+```
 ml, err := magiclink.New(config)
 ```
 
 ### Registering Handlers
 
-```go
+```
 ml.RegisterHandlers(e)
 ```
 
 This registers the following endpoints:
 - `POST /auth/login`: Accepts an email address and sends a magic link
 - `GET /auth/verify`: Verifies a token from a magic link and creates a session
-- `POST /auth/logout`: Logs out the user by invalidating their session
+- `POST /auth/logout`: Logs out the user by invalidating their session and redirects to the configured URL. You can override the redirect URL by adding a `redirect` query parameter (e.g., `/auth/logout?redirect=/login`)
 
 ### Authentication Middleware
 
-```go
+```
 e.Use(ml.AuthMiddleware())
 ```
 
 ### Getting the User ID
 
-```go
+```
 userID, authenticated := ml.GetUserID(c)
 ```
 
 ### Logging Out
 
-```go
+```
 ml.Logout(c)
 ```
 
 ### Cleaning Up Expired Tokens and Sessions
 
-```go
+```
 ml.CleanupExpiredTokens()
 ml.CleanupExpiredSessions()
 ```
