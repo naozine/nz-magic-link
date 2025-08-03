@@ -103,7 +103,7 @@ func (s *Sender) SendMagicLink(to, token string, expiryMinutes int) error {
 }
 
 // sendWithTLS sends email using TLS from the start (port 465)
-func (s *Sender) sendWithTLS(to string, body []byte) error {
+func (s *Sender) sendWithTLS(to string, body []byte) (err error) {
 	addr := fmt.Sprintf("%s:%d", s.Config.Host, s.Config.Port)
 
 	// Create TLS configuration
@@ -117,14 +117,22 @@ func (s *Sender) sendWithTLS(to string, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect with TLS: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close TLS connection: %w", closeErr)
+		}
+	}()
 
-	// Create SMTP client
+	// Create an SMTP client
 	client, err := smtp.NewClient(conn, s.Config.Host)
 	if err != nil {
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
-	defer client.Quit()
+	defer func() {
+		if quitErr := client.Quit(); quitErr != nil && err == nil {
+			err = fmt.Errorf("failed to quit SMTP client: %w", quitErr)
+		}
+	}()
 
 	// Authenticate
 	auth := smtp.PlainAuth("", s.Config.Username, s.Config.Password, s.Config.Host)
@@ -147,7 +155,11 @@ func (s *Sender) sendWithTLS(to string, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to get data writer: %w", err)
 	}
-	defer writer.Close()
+	defer func() {
+		if closeErr := writer.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close data writer: %w", closeErr)
+		}
+	}()
 
 	if _, err := writer.Write(body); err != nil {
 		return fmt.Errorf("failed to write message body: %w", err)
