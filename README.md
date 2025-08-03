@@ -14,7 +14,7 @@ A simple, secure passwordless authentication library for Go applications using t
 ## Installation
 
 ```bash
-go get github.com/yourusername/nz-magic-link
+go get github.com/naozine/nz-magic-link
 ```
 
 ## Quick Start
@@ -24,7 +24,7 @@ package main
 
 import (
     "github.com/labstack/echo/v4"
-    "github.com/yourusername/nz-magic-link/magiclink"
+    "github.com/naozine/nz-magic-link/magiclink"
 )
 
 func main() {
