@@ -9,16 +9,18 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/naozine/nz-magic-link/magiclink/handlers"
-	"github.com/naozine/nz-magic-link/magiclink/internal/db"
 	"github.com/naozine/nz-magic-link/magiclink/internal/email"
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
+	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
 // Config holds the configuration for the magic link authentication system.
 type Config struct {
 	// Database configuration
-	DatabasePath string
+	DatabasePath    string
+	DatabaseType    string            // "sqlite" or "leveldb"
+	DatabaseOptions map[string]string // Database-specific options
 
 	// Email configuration
 	SMTPHost        string
@@ -60,6 +62,8 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		DatabasePath:      "magiclink.db",
+		DatabaseType:      "sqlite",
+		DatabaseOptions:   map[string]string{},
 		SMTPPort:          587,
 		SMTPUseSTARTTLS:   true, // Default to STARTTLS for port 587
 		SMTPUseTLS:        false,
@@ -86,7 +90,7 @@ func DefaultConfig() Config {
 type MagicLink struct {
 	Config         Config
 	Echo           *echo.Echo
-	DB             *db.DB
+	DB             storage.Database
 	TokenManager   *token.Manager
 	EmailSender    *email.Sender
 	SessionManager *session.Manager
@@ -94,8 +98,16 @@ type MagicLink struct {
 
 // New creates a new MagicLink instance with the provided configuration.
 func New(config Config) (*MagicLink, error) {
-	// Initialize the database
-	database, err := db.New(config.DatabasePath)
+	// Create database configuration
+	dbConfig := storage.Config{
+		Type:    config.DatabaseType,
+		Path:    config.DatabasePath,
+		Options: config.DatabaseOptions,
+	}
+
+	// Initialize the database using factory
+	factory := storage.NewFactory()
+	database, err := factory.Create(dbConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
@@ -195,4 +207,9 @@ func (m *MagicLink) CleanupExpiredTokens() error {
 // CleanupExpiredSessions removes expired sessions from the database.
 func (m *MagicLink) CleanupExpiredSessions() error {
 	return m.SessionManager.CleanupExpired()
+}
+
+// Close closes the database connection and cleans up resources.
+func (m *MagicLink) Close() error {
+	return m.DB.Close()
 }
