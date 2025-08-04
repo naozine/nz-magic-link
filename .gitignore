@@ -1,2 +1,5 @@
 /.idea/
 /magiclink.db
+/magiclink/cpu.prof
+/magiclink/magiclink.test
+/magiclink/mem.prof
