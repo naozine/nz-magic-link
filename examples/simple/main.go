@@ -52,6 +52,13 @@ func main() {
 	config.SMTPFromName = getEnv("SMTP_FROM_NAME", "Magic Link Example")
 	config.ServerAddr = getEnv("SERVER_ADDR", "http://localhost:8080")
 
+	config.DatabasePath = "level.db"
+	config.DatabaseType = "leveldb"
+	config.DatabaseOptions = map[string]string{
+		"block_cache_capacity": "33554432", // 32MB
+		"write_buffer":         "16777216", // 16MB
+	}
+
 	// Create a new MagicLink instance
 	ml, err := magiclink.New(config)
 	if err != nil {

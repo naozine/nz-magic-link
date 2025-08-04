@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/naozine/nz-magic-link/magiclink/internal/db"
+	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
 )
 
 // Config holds the configuration for session management.
@@ -27,12 +27,12 @@ type Config struct {
 
 // Manager handles session creation and validation.
 type Manager struct {
-	DB     *db.DB
+	DB     storage.Database
 	Config Config
 }
 
 // New creates a new session manager.
-func New(db *db.DB, config Config) *Manager {
+func New(db storage.Database, config Config) *Manager {
 	return &Manager{
 		DB:     db,
 		Config: config,

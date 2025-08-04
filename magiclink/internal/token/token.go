@@ -9,17 +9,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/naozine/nz-magic-link/magiclink/internal/db"
+	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
 )
 
 // Manager handles token generation and validation.
 type Manager struct {
-	DB          *db.DB
+	DB          storage.Database
 	TokenExpiry time.Duration
 }
 
 // New creates a new token manager.
-func New(db *db.DB, tokenExpiry time.Duration) *Manager {
+func New(db storage.Database, tokenExpiry time.Duration) *Manager {
 	return &Manager{
 		DB:          db,
 		TokenExpiry: tokenExpiry,
