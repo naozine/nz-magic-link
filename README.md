@@ -86,6 +86,10 @@ config := magiclink.DefaultConfig()
 - `MaxLoginAttempts`: Maximum number of login attempts per email within the window (default: 5)
 - `RateLimitWindow`: Time window for rate limiting (default: 15 minutes)
 
+### Development Configuration
+
+- `DevBypassEmailFilePath`: Path to a file containing email addresses that should bypass email sending. This is useful for development and testing purposes. The file should contain one email address per line. If an email address in this file requests a magic link, the link will be returned in the response instead of being sent via email, allowing for easier testing of the authentication flow.
+
 ## API Reference
 
 ### Creating a New Instance
@@ -101,7 +105,7 @@ ml.RegisterHandlers(e)
 ```
 
 This registers the following endpoints:
-- `POST /auth/login`: Accepts an email address and sends a magic link
+- `POST /auth/login`: Accepts an email address and sends a magic link. If the email is in the bypass list (specified by `DevBypassEmailFilePath`), the magic link will be returned in the response as `magic_link` instead of being sent via email.
 - `GET /auth/verify`: Verifies a token from a magic link and creates a session
 - `POST /auth/logout`: Logs out the user by invalidating their session and redirects to the configured URL. You can override the redirect URL by adding a `redirect` query parameter (e.g., `/auth/logout?redirect=/login`)
 

@@ -52,6 +52,9 @@ func main() {
 	config.SMTPFromName = getEnv("SMTP_FROM_NAME", "Magic Link Example")
 	config.ServerAddr = getEnv("SERVER_ADDR", "http://localhost:8080")
 
+	// Set the path to the file containing email addresses that should bypass email sending
+	config.DevBypassEmailFilePath = getEnv("DEV_BYPASS_EMAIL_FILE", "dev_bypass_emails.txt")
+
 	// Set Japanese email subject and template
 	config.EmailSubject = "認証用マジックリンク"
 	config.EmailTemplate = `From: {{.FromName}} <{{.From}}>

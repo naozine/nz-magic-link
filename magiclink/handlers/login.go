@@ -21,7 +21,8 @@ type LoginRequest struct {
 
 // LoginResponse represents the response body for the login endpoint.
 type LoginResponse struct {
-	Message string `json:"message"`
+	Message   string `json:"message"`
+	MagicLink string `json:"magic_link,omitempty"`
 }
 
 // ErrorResponse represents an error response.
@@ -33,7 +34,7 @@ type ErrorResponse struct {
 var rateLimiters = make(map[string]*rate.Limiter)
 
 // LoginHandler handles the login request.
-func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration) echo.HandlerFunc {
+func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, serverAddr string, verifyURL string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Get the client IP address for rate limiting
 		ip := c.RealIP()
@@ -94,6 +95,18 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to generate token",
+			})
+		}
+
+		// Check if the email is in the bypass list
+		if devBypassEmails[req.Email] {
+			// Construct the magic link
+			magicLink := fmt.Sprintf("%s%s?token=%s", serverAddr, verifyURL, token0)
+
+			// Return the magic link in the response
+			return c.JSON(http.StatusOK, LoginResponse{
+				Message:   "Development mode: Magic link generated",
+				MagicLink: magicLink,
 			})
 		}
 
