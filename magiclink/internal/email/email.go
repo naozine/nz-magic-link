@@ -98,19 +98,21 @@ func (s *Sender) SendMagicLinkWithSubject(to, token string, expiryMinutes int, s
 
 	// Prepare the email data
 	data := struct {
-		From          string
-		FromName      string
-		To            string
-		Subject       string
-		MagicLink     string
-		ExpiryMinutes int
+		From             string
+		FromName         string
+		FromNameOriginal string
+		To               string
+		Subject          string
+		MagicLink        string
+		ExpiryMinutes    int
 	}{
-		From:          s.Config.From,
-		FromName:      encodedFromName,
-		To:            to,
-		Subject:       encodedSubject,
-		MagicLink:     magicLink,
-		ExpiryMinutes: expiryMinutes,
+		From:             s.Config.From,
+		FromName:         encodedFromName,
+		FromNameOriginal: s.Config.FromName,
+		To:               to,
+		Subject:          encodedSubject,
+		MagicLink:        magicLink,
+		ExpiryMinutes:    expiryMinutes,
 	}
 
 	// Parse the template

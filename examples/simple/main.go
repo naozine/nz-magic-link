@@ -52,6 +52,29 @@ func main() {
 	config.SMTPFromName = getEnv("SMTP_FROM_NAME", "Magic Link Example")
 	config.ServerAddr = getEnv("SERVER_ADDR", "http://localhost:8080")
 
+	// Set Japanese email subject and template
+	config.EmailSubject = "認証用マジックリンク"
+	config.EmailTemplate = `From: {{.FromName}} <{{.From}}>
+To: {{.To}}
+Subject: {{.Subject}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+こんにちは、
+
+サインインのためのマジックリンクをリクエストしました。以下のリンクをクリックして認証してください：
+
+{{.MagicLink}}
+
+このリンクは{{.ExpiryMinutes}}分後に期限切れになります。
+
+このリンクをリクエストしていない場合は、このメールを無視してください。
+
+よろしくお願いいたします。
+{{.FromNameOriginal}}
+`
+
 	config.DatabasePath = "level.db"
 	config.DatabaseType = "leveldb"
 	config.DatabaseOptions = map[string]string{
