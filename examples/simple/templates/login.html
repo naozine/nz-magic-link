@@ -107,7 +107,19 @@
             .then(response => response.json())
             .then(data => {
                 if (data.message) {
-                    messageDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                    let messageHtml = `<div class="alert alert-success">${data.message}</div>`;
+                    
+                    // If there's a magic link in the response, display it
+                    if (data.magic_link) {
+                        messageHtml += `
+                            <div class="alert alert-success" style="margin-top: 10px;">
+                                <p>Magic Link for Development:</p>
+                                <a href="${data.magic_link}" class="magic-link" style="word-break: break-all;">${data.magic_link}</a>
+                            </div>
+                        `;
+                    }
+                    
+                    messageDiv.innerHTML = messageHtml;
                     document.getElementById('email').value = '';
                 } else if (data.error) {
                     messageDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
