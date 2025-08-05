@@ -51,6 +51,7 @@ type Config struct {
 	RedirectURL       string
 	LogoutRedirectURL string
 	EmailTemplate     string
+	EmailSubject      string
 	ServerAddr        string
 
 	// Rate limiting
@@ -79,6 +80,7 @@ func DefaultConfig() Config {
 		VerifyURL:         "/auth/verify",
 		RedirectURL:       "/",
 		LogoutRedirectURL: "/",
+		EmailSubject:      "Your Magic Link for Authentication",
 		ServerAddr:        "http://localhost:8080",
 		MaxLoginAttempts:  5,
 		RateLimitWindow:   15 * time.Minute,
@@ -129,6 +131,7 @@ func New(config Config) (*MagicLink, error) {
 		From:          config.SMTPFrom,
 		FromName:      config.SMTPFromName,
 		Template:      config.EmailTemplate,
+		Subject:       config.EmailSubject,
 		VerifyURL:     config.VerifyURL,
 		ServerAddr:    config.ServerAddr,
 		UseTLS:        config.SMTPUseTLS,

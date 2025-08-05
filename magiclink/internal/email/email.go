@@ -19,6 +19,7 @@ type Config struct {
 	From       string
 	FromName   string
 	Template   string
+	Subject    string
 	VerifyURL  string
 	ServerAddr string
 	// TLS configuration
@@ -30,7 +31,10 @@ type Config struct {
 // DefaultTemplate is the default email template for magic links.
 const DefaultTemplate = `From: {{.FromName}} <{{.From}}>
 To: {{.To}}
-Subject: Your Magic Link for Authentication
+Subject: {{.Subject}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
 Hello,
 
@@ -65,6 +69,16 @@ func New(config Config) *Sender {
 
 // SendMagicLink sends a magic link to the specified email address.
 func (s *Sender) SendMagicLink(to, token string, expiryMinutes int) error {
+	// Use subject from config or default if not set
+	subject := s.Config.Subject
+	if subject == "" {
+		subject = "Your Magic Link for Authentication"
+	}
+	return s.SendMagicLinkWithSubject(to, token, expiryMinutes, subject)
+}
+
+// SendMagicLinkWithSubject sends a magic link to the specified email address with a custom subject.
+func (s *Sender) SendMagicLinkWithSubject(to, token string, expiryMinutes int, subject string) error {
 	// Prepare the magic link
 	magicLink := fmt.Sprintf("%s%s?token=%s", s.Config.ServerAddr, s.Config.VerifyURL, token)
 
@@ -75,19 +89,30 @@ func (s *Sender) SendMagicLink(to, token string, expiryMinutes int) error {
 		encodedFromName = mime.BEncoding.Encode("UTF-8", s.Config.FromName)
 	}
 
+	// Encode the Subject for email headers if it contains non-ASCII characters
+	encodedSubject := subject
+	if subject != mime.BEncoding.Encode("UTF-8", subject) {
+		// Only encode if it contains non-ASCII characters
+		encodedSubject = mime.BEncoding.Encode("UTF-8", subject)
+	}
+
 	// Prepare the email data
 	data := struct {
-		From          string
-		FromName      string
-		To            string
-		MagicLink     string
-		ExpiryMinutes int
+		From             string
+		FromName         string
+		FromNameOriginal string
+		To               string
+		Subject          string
+		MagicLink        string
+		ExpiryMinutes    int
 	}{
-		From:          s.Config.From,
-		FromName:      encodedFromName,
-		To:            to,
-		MagicLink:     magicLink,
-		ExpiryMinutes: expiryMinutes,
+		From:             s.Config.From,
+		FromName:         encodedFromName,
+		FromNameOriginal: s.Config.FromName,
+		To:               to,
+		Subject:          encodedSubject,
+		MagicLink:        magicLink,
+		ExpiryMinutes:    expiryMinutes,
 	}
 
 	// Parse the template
