@@ -246,7 +246,7 @@ func (m *MagicLink) Close() error {
 
 // loadDevBypassEmails reads the file at the given path and loads the email addresses into the DevBypassEmails map.
 // Each line in the file should contain a single email address.
-func (m *MagicLink) loadDevBypassEmails(filePath string) error {
+func (m *MagicLink) loadDevBypassEmails(filePath string) (err error) {
 	// Initialize the map
 	m.DevBypassEmails = make(map[string]bool)
 
@@ -260,21 +260,25 @@ func (m *MagicLink) loadDevBypassEmails(filePath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open bypass email file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close bypass email file: %w", closeErr)
+		}
+	}()
 
 	// Read the file line by line
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		// Get the line and trim whitespace
-		email := strings.TrimSpace(scanner.Text())
+		emailAddr := strings.TrimSpace(scanner.Text())
 
 		// Skip empty lines
-		if email == "" {
+		if emailAddr == "" {
 			continue
 		}
 
 		// Add the email to the map
-		m.DevBypassEmails[email] = true
+		m.DevBypassEmails[emailAddr] = true
 	}
 
 	// Check for errors
