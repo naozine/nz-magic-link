@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Test - Magic Link</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="email"], input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        textarea {
+            height: 150px;
+            resize: vertical;
+        }
+        .btn {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 16px;
+        }
+        .btn:hover {
+            background: #45a049;
+        }
+        .btn-secondary {
+            background: #2196F3;
+        }
+        .btn-secondary:hover {
+            background: #0b7dda;
+        }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid transparent;
+            border-radius: 5px;
+        }
+        .alert-success {
+            color: #3c763d;
+            background-color: #dff0d8;
+            border-color: #d6e9c6;
+        }
+        .alert-danger {
+            color: #a94442;
+            background-color: #f2dede;
+            border-color: #ebccd1;
+        }
+    </style>
+</head>
+<body>
+    <h1>Email Test - Magic Link</h1>
+    
+    <div class="container">
+        <p>Fill out the form below to test sending an email with a magic link.</p>
+        
+        <div id="message"></div>
+        
+        <form id="emailForm" action="/send-email" method="post">
+            <div class="form-group">
+                <label for="to">To:</label>
+                <input type="email" id="to" name="to" required>
+            </div>
+            <div class="form-group">
+                <label for="subject">Subject:</label>
+                <input type="text" id="subject" name="subject" required>
+            </div>
+            <div class="form-group">
+                <label for="body">Message Body:</label>
+                <textarea id="body" name="body" required></textarea>
+            </div>
+            <button type="submit" class="btn">Send Email</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('emailForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const to = document.getElementById('to').value;
+            const subject = document.getElementById('subject').value;
+            const body = document.getElementById('body').value;
+            const messageDiv = document.getElementById('message');
+            
+            fetch('/send-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    to: to,
+                    subject: subject,
+                    body: body
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.message) {
+                    let messageHtml = `<div class="alert alert-success">${data.message}</div>`;
+                    
+                    // If there's a magic link in the response, display it
+                    if (data.magic_link) {
+                        messageHtml += `
+                            <div class="alert alert-success" style="margin-top: 10px;">
+                                <p>Magic Link for Development:</p>
+                                <a href="${data.magic_link}" class="magic-link" style="word-break: break-all;">${data.magic_link}</a>
+                            </div>
+                        `;
+                    }
+                    
+                    messageDiv.innerHTML = messageHtml;
+                } else if (data.error) {
+                    messageDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                }
+            })
+            .catch(error => {
+                messageDiv.innerHTML = `<div class="alert alert-danger">An error occurred. Please try again.</div>`;
+                console.error('Error:', error);
+            });
+        });
+    </script>
+</body>
+</html>

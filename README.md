@@ -19,13 +19,26 @@ go get github.com/naozine/nz-magic-link
 
 ## Quick Start
 
-For a complete working example, please refer to the [examples/simple](examples/simple) directory in the repository. This example demonstrates:
+For complete working examples, please refer to the following directories in the repository:
+
+### Simple Example ([examples/simple](examples/simple))
+
+This example demonstrates:
 
 - Setting up an Echo server with the magic link authentication system
 - Configuring SMTP settings for sending emails
 - Creating public and protected routes
 - Using HTML templates for login and dashboard pages
 - Handling environment variables for configuration
+
+### Email Testing Example ([examples/email-test](examples/email-test))
+
+This example provides a form-based interface for testing email sending functionality:
+
+- Form with fields for To, Subject, and message body
+- Custom email template generation based on user input
+- Token generation and magic link creation
+- Development mode for bypassing actual email sending
 
 Here's a brief overview of how to use the library:
 
