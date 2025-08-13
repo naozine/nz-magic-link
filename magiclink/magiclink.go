@@ -18,6 +18,11 @@ import (
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
+// BaseTemplateData is exported from the email package for external use.
+// This struct should be embedded in custom data structures to ensure
+// compatibility with existing template macros.
+type BaseTemplateData = email.BaseTemplateData
+
 // Config holds the configuration for the magic link authentication system.
 type Config struct {
 	// Database configuration

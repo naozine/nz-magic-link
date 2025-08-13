@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"net/smtp"
+	"reflect"
 	"text/template"
 )
 
@@ -26,6 +27,19 @@ type Config struct {
 	UseTLS        bool // Use TLS from the start (port 465)
 	UseSTARTTLS   bool // Use STARTTLS (port 587)
 	SkipTLSVerify bool // Skip TLS certificate verification
+}
+
+// BaseTemplateData contains the standard fields for email templates.
+// This struct should be embedded in custom data structures to ensure
+// compatibility with existing template macros.
+type BaseTemplateData struct {
+	From             string
+	FromName         string
+	FromNameOriginal string
+	To               string
+	Subject          string
+	MagicLink        string
+	ExpiryMinutes    int
 }
 
 // DefaultTemplate is the default email template for magic links.
@@ -127,6 +141,77 @@ func (s *Sender) SendMagicLinkWithTemplate(to, token string, expiryMinutes int, 
 	}
 
 	// Execute the template
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, data); err != nil {
+		return fmt.Errorf("failed to execute email template: %w", err)
+	}
+
+	// Send the email based on configuration
+	if s.Config.UseTLS {
+		return s.sendWithTLS(to, body.Bytes())
+	} else {
+		return s.sendWithSTARTTLS(to, body.Bytes())
+	}
+}
+
+// SendMagicLinkWithTemplateAndData sends a magic link with custom template and data.
+// The data parameter must be a struct that embeds BaseTemplateData.
+func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinutes int, subject, templateStr string, data interface{}) error {
+	// Validate that data contains BaseTemplateData using reflection
+	dataValue := reflect.ValueOf(data)
+	if dataValue.Kind() == reflect.Ptr {
+		dataValue = dataValue.Elem()
+	}
+
+	if dataValue.Kind() != reflect.Struct {
+		return fmt.Errorf("data parameter must be a struct")
+	}
+
+	dataType := dataValue.Type()
+	baseTemplateField, found := dataType.FieldByName("BaseTemplateData")
+	if !found || baseTemplateField.Type != reflect.TypeOf(BaseTemplateData{}) {
+		return fmt.Errorf("data parameter must embed BaseTemplateData struct")
+	}
+
+	// Prepare the magic link
+	magicLink := fmt.Sprintf("%s%s?token=%s", s.Config.ServerAddr, s.Config.VerifyURL, token)
+
+	// Encode the FromName for email headers if it contains non-ASCII characters
+	encodedFromName := s.Config.FromName
+	if s.Config.FromName != mime.BEncoding.Encode("UTF-8", s.Config.FromName) {
+		// Only encode if it contains non-ASCII characters
+		encodedFromName = mime.BEncoding.Encode("UTF-8", s.Config.FromName)
+	}
+
+	// Encode the Subject for email headers if it contains non-ASCII characters
+	encodedSubject := subject
+	if subject != mime.BEncoding.Encode("UTF-8", subject) {
+		// Only encode if it contains non-ASCII characters
+		encodedSubject = mime.BEncoding.Encode("UTF-8", subject)
+	}
+
+	// Set the BaseTemplateData fields in the provided data
+	baseTemplateValue := dataValue.FieldByName("BaseTemplateData")
+	if baseTemplateValue.CanSet() {
+		baseTemplate := BaseTemplateData{
+			From:             s.Config.From,
+			FromName:         encodedFromName,
+			FromNameOriginal: s.Config.FromName,
+			To:               to,
+			Subject:          encodedSubject,
+			MagicLink:        magicLink,
+			ExpiryMinutes:    expiryMinutes,
+		}
+		baseTemplateValue.Set(reflect.ValueOf(baseTemplate))
+	}
+
+	// Parse the template using the provided template parameter
+	tmpl, err := template.New("email").Parse(templateStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse email template: %w", err)
+	}
+
+	// Execute the template with the custom data
 	var body bytes.Buffer
 	if err := tmpl.Execute(&body, data); err != nil {
 		return fmt.Errorf("failed to execute email template: %w", err)

@@ -26,7 +26,7 @@
             margin-bottom: 5px;
             font-weight: bold;
         }
-        input[type="email"], input[type="text"], textarea {
+        input[type="email"], input[type="text"], input[type="number"], textarea {
             width: 100%;
             padding: 10px;
             border: 1px solid #ddd;
@@ -80,7 +80,8 @@
     <h1>Email Test - Magic Link</h1>
     
     <div class="container">
-        <p>Fill out the form below to test sending an email with a magic link.</p>
+        <h2>Standard Email with Magic Link</h2>
+        <p>Fill out the form below to test sending a standard email with a magic link.</p>
         
         <div id="message"></div>
         
@@ -97,7 +98,42 @@
                 <label for="body">Message Body:</label>
                 <textarea id="body" name="body" required></textarea>
             </div>
-            <button type="submit" class="btn">Send Email</button>
+            <button type="submit" class="btn">Send Standard Email</button>
+        </form>
+    </div>
+
+    <div class="container">
+        <h2>Custom Email with User Data</h2>
+        <p>Fill out the form below to test sending a custom email with additional user data and magic link.</p>
+        
+        <div id="customMessage"></div>
+        
+        <form id="customEmailForm" action="/send-custom-email" method="post">
+            <div class="form-group">
+                <label for="customTo">To:</label>
+                <input type="email" id="customTo" name="to" required>
+            </div>
+            <div class="form-group">
+                <label for="customSubject">Subject:</label>
+                <input type="text" id="customSubject" name="subject" required>
+            </div>
+            <div class="form-group">
+                <label for="customBody">Message Body:</label>
+                <textarea id="customBody" name="body" required></textarea>
+            </div>
+            <div class="form-group">
+                <label for="userName">User Name:</label>
+                <input type="text" id="userName" name="user_name" required>
+            </div>
+            <div class="form-group">
+                <label for="orderID">Order ID:</label>
+                <input type="text" id="orderID" name="order_id" required>
+            </div>
+            <div class="form-group">
+                <label for="amount">Amount (¥):</label>
+                <input type="number" id="amount" name="amount" step="0.01" min="0" required>
+            </div>
+            <button type="submit" class="btn btn-secondary">Send Custom Email</button>
         </form>
     </div>
 
@@ -143,6 +179,58 @@
             })
             .catch(error => {
                 messageDiv.innerHTML = `<div class="alert alert-danger">An error occurred. Please try again.</div>`;
+                console.error('Error:', error);
+            });
+        });
+
+        // Custom email form handler
+        document.getElementById('customEmailForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const customTo = document.getElementById('customTo').value;
+            const customSubject = document.getElementById('customSubject').value;
+            const customBody = document.getElementById('customBody').value;
+            const userName = document.getElementById('userName').value;
+            const orderID = document.getElementById('orderID').value;
+            const amount = parseFloat(document.getElementById('amount').value);
+            const customMessageDiv = document.getElementById('customMessage');
+            
+            fetch('/send-custom-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    to: customTo,
+                    subject: customSubject,
+                    body: customBody,
+                    user_name: userName,
+                    order_id: orderID,
+                    amount: amount
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.message) {
+                    let messageHtml = `<div class="alert alert-success">${data.message}</div>`;
+                    
+                    // If there's a magic link in the response, display it
+                    if (data.magic_link) {
+                        messageHtml += `
+                            <div class="alert alert-success" style="margin-top: 10px;">
+                                <p>Custom Magic Link for Development:</p>
+                                <a href="${data.magic_link}" class="magic-link" style="word-break: break-all;">${data.magic_link}</a>
+                            </div>
+                        `;
+                    }
+                    
+                    customMessageDiv.innerHTML = messageHtml;
+                } else if (data.error) {
+                    customMessageDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                }
+            })
+            .catch(error => {
+                customMessageDiv.innerHTML = `<div class="alert alert-danger">An error occurred. Please try again.</div>`;
                 console.error('Error:', error);
             });
         });
