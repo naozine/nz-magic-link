@@ -98,12 +98,14 @@ func (s *Sender) SendMagicLinkWithSubject(to, token string, expiryMinutes int, s
 		BaseTemplateData
 	}{}
 
-	return s.SendMagicLinkWithTemplateAndData(to, token, expiryMinutes, subject, s.Config.Template, data)
+	_, err := s.SendMagicLinkWithTemplateAndData(to, token, expiryMinutes, subject, s.Config.Template, data, false)
+	return err
 }
 
 // SendMagicLinkWithTemplateAndData sends a magic link with custom template and data.
 // The data parameter must be a struct that embeds BaseTemplateData.
-func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinutes int, subject, templateStr string, data interface{}) error {
+// If dryRun is true, returns the expanded template content as a string instead of sending email.
+func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinutes int, subject, templateStr string, data interface{}, dryRun bool) (string, error) {
 	// Validate that data contains BaseTemplateData using reflection
 	dataValue := reflect.ValueOf(data)
 	if dataValue.Kind() == reflect.Ptr {
@@ -111,13 +113,13 @@ func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinute
 	}
 
 	if dataValue.Kind() != reflect.Struct {
-		return fmt.Errorf("data parameter must be a struct")
+		return "", fmt.Errorf("data parameter must be a struct")
 	}
 
 	dataType := dataValue.Type()
 	baseTemplateField, found := dataType.FieldByName("BaseTemplateData")
 	if !found || baseTemplateField.Type != reflect.TypeOf(BaseTemplateData{}) {
-		return fmt.Errorf("data parameter must embed BaseTemplateData struct")
+		return "", fmt.Errorf("data parameter must embed BaseTemplateData struct")
 	}
 
 	// Prepare the magic link
@@ -155,20 +157,27 @@ func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinute
 	// Parse the template using the provided template parameter
 	tmpl, err := template.New("email").Parse(templateStr)
 	if err != nil {
-		return fmt.Errorf("failed to parse email template: %w", err)
+		return "", fmt.Errorf("failed to parse email template: %w", err)
 	}
 
 	// Execute the template with the custom data
 	var body bytes.Buffer
 	if err := tmpl.Execute(&body, data); err != nil {
-		return fmt.Errorf("failed to execute email template: %w", err)
+		return "", fmt.Errorf("failed to execute email template: %w", err)
+	}
+
+	// If dry run mode, return the expanded template content
+	if dryRun {
+		return body.String(), nil
 	}
 
 	// Send the email based on configuration
 	if s.Config.UseTLS {
-		return s.sendWithTLS(to, body.Bytes())
+		err := s.sendWithTLS(to, body.Bytes())
+		return "", err
 	} else {
-		return s.sendWithSTARTTLS(to, body.Bytes())
+		err := s.sendWithSTARTTLS(to, body.Bytes())
+		return "", err
 	}
 }
 

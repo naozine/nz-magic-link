@@ -43,12 +43,14 @@ type EmailRequest struct {
 	UserName string  `json:"user_name"`
 	OrderID  string  `json:"order_id"`
 	Amount   float64 `json:"amount"`
+	Preview  bool    `json:"preview"`
 }
 
 // EmailResponse represents the response body for the email sending endpoint
 type EmailResponse struct {
-	Message   string `json:"message"`
-	MagicLink string `json:"magic_link,omitempty"`
+	Message        string `json:"message"`
+	MagicLink      string `json:"magic_link,omitempty"`
+	PreviewContent string `json:"preview_content,omitempty"`
 }
 
 // ErrorResponse represents an error response
@@ -192,17 +194,24 @@ Content-Transfer-Encoding: 8bit
 		}{}
 
 		// Use SendMagicLinkWithTemplateAndData to send the email with custom template and subject
-		err = ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, simpleData)
+		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, simpleData, req.Preview)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send email: " + err.Error(),
 			})
 		}
 
-		// Return a success response
-		return c.JSON(http.StatusOK, EmailResponse{
-			Message: "Email sent successfully",
-		})
+		// Return response based on preview mode
+		if req.Preview {
+			return c.JSON(http.StatusOK, EmailResponse{
+				Message:        "Email preview generated successfully",
+				PreviewContent: previewContent,
+			})
+		} else {
+			return c.JSON(http.StatusOK, EmailResponse{
+				Message: "Email sent successfully",
+			})
+		}
 	})
 
 	e.POST("/send-custom-email", func(c echo.Context) error {
@@ -300,17 +309,24 @@ Content-Transfer-Encoding: 8bit
 		}
 
 		// Use SendMagicLinkWithTemplateAndData to send the email with custom data
-		err = ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, customData)
+		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, customData, req.Preview)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send custom email: " + err.Error(),
 			})
 		}
 
-		// Return a success response
-		return c.JSON(http.StatusOK, EmailResponse{
-			Message: "Custom email sent successfully",
-		})
+		// Return response based on preview mode
+		if req.Preview {
+			return c.JSON(http.StatusOK, EmailResponse{
+				Message:        "Custom email preview generated successfully",
+				PreviewContent: previewContent,
+			})
+		} else {
+			return c.JSON(http.StatusOK, EmailResponse{
+				Message: "Custom email sent successfully",
+			})
+		}
 	})
 
 	// Start the server
