@@ -154,13 +154,14 @@ customData := &CustomEmailData{
 }
 
 // Send email with custom template and data
-err := ml.EmailSender.SendMagicLinkWithTemplateAndData(
+_, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(
     "user@example.com",           // to
     token,                        // token
     30,                          // expiryMinutes
     "Your Order Confirmation",    // subject
     customTemplate,              // template
     customData,                  // data
+    false,                       // dryRun
 )
 ```
 
@@ -189,12 +190,57 @@ The following macros are automatically populated in the `BaseTemplateData`:
 - `{{.MagicLink}}` - Generated magic link URL
 - `{{.ExpiryMinutes}}` - Token expiry time in minutes
 
+#### Dry Run Mode
+
+The `SendMagicLinkWithTemplateAndData` method supports a dry run mode that allows you to preview the expanded email template without actually sending the email. This is useful for testing templates, debugging, and development purposes.
+
+When dry run mode is enabled (by setting the `dryRun` parameter to `true`), the method:
+- Expands the template with the provided data
+- Returns the complete email content as a string (including headers)
+- Does **not** send the actual email
+
+```go
+// Enable dry run mode to preview the email content
+previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(
+    "user@example.com",           // to
+    token,                        // token
+    30,                          // expiryMinutes
+    "Your Order Confirmation",    // subject
+    customTemplate,              // template
+    customData,                  // data
+    true,                        // dryRun - enable preview mode
+)
+if err != nil {
+    log.Printf("Template expansion failed: %v", err)
+    return
+}
+
+// previewContent now contains the expanded email template
+fmt.Println("Email Preview:")
+fmt.Println(previewContent)
+```
+
+##### Use Cases for Dry Run Mode
+
+- **Template Testing**: Verify that your custom templates expand correctly with real data
+- **Development**: Test email functionality without sending actual emails
+- **Debugging**: Inspect the final email content to troubleshoot formatting issues
+- **Content Validation**: Review email content before sending to ensure accuracy
+
+##### Email Test Example Integration
+
+The [email-test example](examples/email-test) includes a web interface that demonstrates dry run functionality:
+
+- Check the "Preview mode (dry run - don't send email)" checkbox in the form
+- The preview content will be displayed in a modal dialog
+- This allows you to test different templates and data combinations interactively
+
 #### Error Handling
 
 The method validates that your data structure embeds `BaseTemplateData`. If not, it returns an error:
 
 ```go
-err := ml.EmailSender.SendMagicLinkWithTemplateAndData(to, token, expiry, subject, template, data)
+previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(to, token, expiry, subject, template, data, dryRun)
 if err != nil {
     // Handle validation errors like:
     // "data parameter must embed BaseTemplateData struct"
