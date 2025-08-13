@@ -135,6 +135,64 @@ func (s *Sender) SendMagicLinkWithSubject(to, token string, expiryMinutes int, s
 	}
 }
 
+// SendMagicLinkWithTemplate sends a magic link to the specified email address with custom subject and template.
+func (s *Sender) SendMagicLinkWithTemplate(to, token string, expiryMinutes int, subject string, templateStr string) error {
+	// Prepare the magic link
+	magicLink := fmt.Sprintf("%s%s?token=%s", s.Config.ServerAddr, s.Config.VerifyURL, token)
+
+	// Encode the FromName for email headers if it contains non-ASCII characters
+	encodedFromName := s.Config.FromName
+	if s.Config.FromName != mime.BEncoding.Encode("UTF-8", s.Config.FromName) {
+		// Only encode if it contains non-ASCII characters
+		encodedFromName = mime.BEncoding.Encode("UTF-8", s.Config.FromName)
+	}
+
+	// Encode the Subject for email headers if it contains non-ASCII characters
+	encodedSubject := subject
+	if subject != mime.BEncoding.Encode("UTF-8", subject) {
+		// Only encode if it contains non-ASCII characters
+		encodedSubject = mime.BEncoding.Encode("UTF-8", subject)
+	}
+
+	// Prepare the email data
+	data := struct {
+		From             string
+		FromName         string
+		FromNameOriginal string
+		To               string
+		Subject          string
+		MagicLink        string
+		ExpiryMinutes    int
+	}{
+		From:             s.Config.From,
+		FromName:         encodedFromName,
+		FromNameOriginal: s.Config.FromName,
+		To:               to,
+		Subject:          encodedSubject,
+		MagicLink:        magicLink,
+		ExpiryMinutes:    expiryMinutes,
+	}
+
+	// Parse the template using the provided template parameter
+	tmpl, err := template.New("email").Parse(templateStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse email template: %w", err)
+	}
+
+	// Execute the template
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, data); err != nil {
+		return fmt.Errorf("failed to execute email template: %w", err)
+	}
+
+	// Send the email based on configuration
+	if s.Config.UseTLS {
+		return s.sendWithTLS(to, body.Bytes())
+	} else {
+		return s.sendWithSTARTTLS(to, body.Bytes())
+	}
+}
+
 // sendWithTLS sends email using TLS from the start (port 465)
 func (s *Sender) sendWithTLS(to string, body []byte) (err error) {
 	addr := fmt.Sprintf("%s:%d", s.Config.Host, s.Config.Port)

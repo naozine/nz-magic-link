@@ -137,12 +137,8 @@ func main() {
 			})
 		}
 
-		// Save the original template and subject
-		originalTemplate := config.EmailTemplate
-		originalSubject := config.EmailSubject
-
 		// Create a custom email template with the user's body
-		config.EmailTemplate = fmt.Sprintf(`From: {{.FromName}} <{{.From}}>
+		customTemplate := fmt.Sprintf(`From: {{.FromName}} <{{.From}}>
 To: {{.To}}
 Subject: {{.Subject}}
 MIME-Version: 1.0
@@ -156,9 +152,6 @@ Content-Transfer-Encoding: 8bit
 このリンクは{{.ExpiryMinutes}}分後に期限切れになります。
 `, req.Body)
 
-		// Set the custom subject
-		config.EmailSubject = req.Subject
-
 		// Generate a random token (simulating a magic link token)
 		token := fmt.Sprintf("test-token-%d", time.Now().Unix())
 
@@ -167,10 +160,6 @@ Content-Transfer-Encoding: 8bit
 			// Construct the magic link
 			magicLink := fmt.Sprintf("%s/auth/verify?token=%s", config.ServerAddr, token)
 
-			// Restore the original template and subject
-			config.EmailTemplate = originalTemplate
-			config.EmailSubject = originalSubject
-
 			// Return the magic link in the response
 			return c.JSON(http.StatusOK, EmailResponse{
 				Message:   "Development mode: Magic link generated",
@@ -178,34 +167,21 @@ Content-Transfer-Encoding: 8bit
 			})
 		}
 
-		// Create a new MagicLink instance with the updated config
-		updatedML, err := magiclink.New(config)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
-				Error: "Failed to create MagicLink instance: " + err.Error(),
-			})
-		}
-		defer updatedML.Close()
-
 		// Generate a token using the token manager
-		generatedToken, err := updatedML.TokenManager.Generate(req.To)
+		generatedToken, err := ml.TokenManager.Generate(req.To)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to generate token: " + err.Error(),
 			})
 		}
 
-		// Directly call SendMagicLink to send the email
-		err = updatedML.EmailSender.SendMagicLink(req.To, generatedToken, int(updatedML.TokenManager.TokenExpiry.Minutes()))
+		// Use SendMagicLinkWithTemplate to send the email with custom template and subject
+		err = ml.EmailSender.SendMagicLinkWithTemplate(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send email: " + err.Error(),
 			})
 		}
-
-		// Restore the original template and subject
-		config.EmailTemplate = originalTemplate
-		config.EmailSubject = originalSubject
 
 		// Return a success response
 		return c.JSON(http.StatusOK, EmailResponse{
