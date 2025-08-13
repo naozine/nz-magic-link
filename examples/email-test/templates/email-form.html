@@ -74,6 +74,47 @@
             background-color: #f2dede;
             border-color: #ebccd1;
         }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 600px;
+            border-radius: 5px;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+        }
+        .preview-content {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -97,6 +138,12 @@
             <div class="form-group">
                 <label for="body">Message Body:</label>
                 <textarea id="body" name="body" required></textarea>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="preview" name="preview" value="true">
+                    Preview mode (dry run - don't send email)
+                </label>
             </div>
             <button type="submit" class="btn">Send Standard Email</button>
         </form>
@@ -133,17 +180,50 @@
                 <label for="amount">Amount (¥):</label>
                 <input type="number" id="amount" name="amount" step="0.01" min="0" required>
             </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="customPreview" name="preview" value="true">
+                    Preview mode (dry run - don't send email)
+                </label>
+            </div>
             <button type="submit" class="btn btn-secondary">Send Custom Email</button>
         </form>
     </div>
 
+    <!-- Modal for preview -->
+    <div id="previewModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closePreviewModal()">&times;</span>
+            <h2>Email Preview (Dry Run)</h2>
+            <div id="previewContent" class="preview-content"></div>
+        </div>
+    </div>
+
     <script>
+        function showPreviewModal(content) {
+            document.getElementById('previewContent').textContent = content;
+            document.getElementById('previewModal').style.display = 'block';
+        }
+
+        function closePreviewModal() {
+            document.getElementById('previewModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('previewModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+
         document.getElementById('emailForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
             const to = document.getElementById('to').value;
             const subject = document.getElementById('subject').value;
             const body = document.getElementById('body').value;
+            const preview = document.getElementById('preview').checked;
             const messageDiv = document.getElementById('message');
             
             fetch('/send-email', {
@@ -154,12 +234,17 @@
                 body: JSON.stringify({ 
                     to: to,
                     subject: subject,
-                    body: body
+                    body: body,
+                    preview: preview
                 }),
             })
             .then(response => response.json())
             .then(data => {
-                if (data.message) {
+                if (data.preview_content) {
+                    // Show preview in modal for dry run mode
+                    showPreviewModal(data.preview_content);
+                    messageDiv.innerHTML = `<div class="alert alert-success">Email preview generated successfully</div>`;
+                } else if (data.message) {
                     let messageHtml = `<div class="alert alert-success">${data.message}</div>`;
                     
                     // If there's a magic link in the response, display it
@@ -193,6 +278,7 @@
             const userName = document.getElementById('userName').value;
             const orderID = document.getElementById('orderID').value;
             const amount = parseFloat(document.getElementById('amount').value);
+            const customPreview = document.getElementById('customPreview').checked;
             const customMessageDiv = document.getElementById('customMessage');
             
             fetch('/send-custom-email', {
@@ -206,12 +292,17 @@
                     body: customBody,
                     user_name: userName,
                     order_id: orderID,
-                    amount: amount
+                    amount: amount,
+                    preview: customPreview
                 }),
             })
             .then(response => response.json())
             .then(data => {
-                if (data.message) {
+                if (data.preview_content) {
+                    // Show preview in modal for dry run mode
+                    showPreviewModal(data.preview_content);
+                    customMessageDiv.innerHTML = `<div class="alert alert-success">Custom email preview generated successfully</div>`;
+                } else if (data.message) {
                     let messageHtml = `<div class="alert alert-success">${data.message}</div>`;
                     
                     // If there's a magic link in the response, display it
