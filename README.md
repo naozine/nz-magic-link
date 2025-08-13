@@ -111,6 +111,97 @@ config := magiclink.DefaultConfig()
 ml, err := magiclink.New(config)
 ```
 
+### Custom Email Templates with Data
+
+The library provides advanced email functionality through the `SendMagicLinkWithTemplateAndData` method, which allows you to send emails with custom templates and additional data fields.
+
+#### Basic Usage
+
+```go
+// Define custom data structure that embeds BaseTemplateData
+type CustomEmailData struct {
+    magiclink.BaseTemplateData
+    UserName string
+    OrderID  string
+    Amount   float64
+}
+
+// Create custom template with additional macros
+customTemplate := `From: {{.FromName}} <{{.From}}>
+To: {{.To}}
+Subject: {{.Subject}}
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hello {{.UserName}},
+
+Your order {{.OrderID}} for ¥{{.Amount}} has been processed.
+
+Click the link below to authenticate:
+{{.MagicLink}}
+
+This link will expire in {{.ExpiryMinutes}} minutes.
+
+Best regards,
+{{.FromName}}`
+
+// Create custom data instance
+customData := &CustomEmailData{
+    UserName: "John Doe",
+    OrderID:  "ORDER-12345",
+    Amount:   9800.00,
+}
+
+// Send email with custom template and data
+err := ml.EmailSender.SendMagicLinkWithTemplateAndData(
+    "user@example.com",           // to
+    token,                        // token
+    30,                          // expiryMinutes
+    "Your Order Confirmation",    // subject
+    customTemplate,              // template
+    customData,                  // data
+)
+```
+
+#### Required Structure
+
+Your custom data struct **must** embed `magiclink.BaseTemplateData` to ensure compatibility with the standard template macros:
+
+```go
+type YourCustomData struct {
+    magiclink.BaseTemplateData  // Required embedding
+    // Your custom fields
+    CustomField1 string
+    CustomField2 int
+}
+```
+
+#### Standard Template Macros
+
+The following macros are automatically populated in the `BaseTemplateData`:
+
+- `{{.From}}` - Sender email address
+- `{{.FromName}}` - Sender name (encoded for email headers)
+- `{{.FromNameOriginal}}` - Original sender name (unencoded)
+- `{{.To}}` - Recipient email address
+- `{{.Subject}}` - Email subject (encoded for email headers)
+- `{{.MagicLink}}` - Generated magic link URL
+- `{{.ExpiryMinutes}}` - Token expiry time in minutes
+
+#### Error Handling
+
+The method validates that your data structure embeds `BaseTemplateData`. If not, it returns an error:
+
+```go
+err := ml.EmailSender.SendMagicLinkWithTemplateAndData(to, token, expiry, subject, template, data)
+if err != nil {
+    // Handle validation errors like:
+    // "data parameter must embed BaseTemplateData struct"
+    log.Printf("Email send failed: %v", err)
+}
+```
+
 ### Registering Handlers
 
 ```
