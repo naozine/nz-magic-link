@@ -186,8 +186,13 @@ Content-Transfer-Encoding: 8bit
 			})
 		}
 
-		// Use SendMagicLinkWithTemplate to send the email with custom template and subject
-		err = ml.EmailSender.SendMagicLinkWithTemplate(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate)
+		// Create a simple data struct for the custom template
+		simpleData := &struct {
+			magiclink.BaseTemplateData
+		}{}
+
+		// Use SendMagicLinkWithTemplateAndData to send the email with custom template and subject
+		err = ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, simpleData)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send email: " + err.Error(),
