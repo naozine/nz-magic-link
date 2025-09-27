@@ -87,6 +87,13 @@ Content-Transfer-Encoding: 8bit
 		"write_buffer":         "16777216", // 16MB
 	}
 
+	// Enable WebAuthn/Passkey support
+	config.WebAuthnEnabled = true
+	config.WebAuthnRPID = getEnv("WEBAUTHN_RP_ID", "localhost")
+	config.WebAuthnRPName = getEnv("WEBAUTHN_RP_NAME", "Magic Link Example")
+	config.WebAuthnAllowedOrigins = []string{config.ServerAddr}
+	// For production, these should be HTTPS origins
+
 	// Create a new MagicLink instance
 	ml, err := magiclink.New(config)
 	if err != nil {
