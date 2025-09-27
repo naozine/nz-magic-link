@@ -46,6 +46,9 @@
 - rpID: 運用ドメイン（例: example.com）。ローカル開発は localhost で rpID=localhost を使用。
 - rpName: 表示名（例: nz-magic-link Sample）。
 - origin: https://<rpID> または http://localhost:8080 等、CORS/Origin 検証に使用。
+- timeout: 認証タイムアウト（既定60秒）、カスタマイズ可能。
+- metadataValidation: 認証器メタデータ検証の有効化（セキュリティ強化のため推奨）。
+- userVerification: "required"/"preferred"/"discouraged" の設定（運用方針に応じて調整）。
 
 ### 4.2 データモデル（ストレージ）
 - PasskeyCredential（新規）
@@ -70,27 +73,33 @@
 ### 4.3 API エンドポイント（案）
 - POST /webauthn/register/start
   - 入力: { email }（既存ユーザー紐付けのため）
-  - 動作: go-webauthn/webauthn v0.14.0 の BeginRegistration を呼び出し、options と sessionData を取得。sessionData は PasskeyChallenge.session_data_json に保存。
+  - 動作: go-webauthn/webauthn v0.14.0 の BeginMediatedRegistration を呼び出し、options と sessionData を取得。sessionData は PasskeyChallenge.session_data_json に保存。
   - 出力: PublicKeyCredentialCreationOptions（JSON）
 - POST /webauthn/register/finish
   - 入力: クライアントからの attestationResponse
   - 動作: Begin 時に保存した sessionData を用いて FinishRegistration を実行。署名/オリジン/RPID 検証を通過後、Credential 情報（ID/PublicKey/SignCount/AAGUID 等）を保存。
   - 出力: 成功可否
 - POST /webauthn/login/start
-  - 入力: { email }（ユーザー探索用; discoverable credentials を優先する場合は省略可）
-  - 動作: BeginLogin を呼び出し、options と sessionData を取得。sessionData を保存。
+  - 入力: { email }（ユーザー探索用; discoverable credentials では省略可）
+  - 動作: BeginDiscoverableLogin（ユーザーレス）または BeginLogin（従来方式）を呼び出し、options と sessionData を取得。sessionData を保存。
   - 出力: PublicKeyCredentialRequestOptions（JSON）
 - POST /webauthn/login/finish
   - 入力: assertionResponse
-  - 動作: 保存した sessionData を用いて FinishLogin を実行。署名検証、signCount の増加チェック・更新、セッション発行（既存フロー）。
+  - 動作: 保存した sessionData を用いて FinishPasskeyLogin（パスキー専用）または FinishLogin（従来方式）を実行。署名検証、signCount の増加チェック・更新、セッション発行（既存フロー）。
   - 出力: 成功可否 or リダイレクト
+- POST /webauthn/login/discoverable （新規追加）
+  - 入力: 不要（ユーザーレス認証）
+  - 動作: BeginDiscoverableLogin で discoverable credentials を使用したログインを開始。
+  - 出力: PublicKeyCredentialRequestOptions（JSON）
 
 注: CORS/CSRF を考慮し、ブラウザ発呼限定であれば SameSite/HTTPS 運用を前提にする。
 
 ### 4.4 既存フローとの統合
 - セッション: 認証成功後は handlers/verify.go 同様に session.Manager でクッキー発行。
-- 併用: ログイン画面に「メールでログイン」「パスキーでログイン」を併記。
+- 併用: ログイン画面に「メールでログイン」「パスキーでログイン」「ワンタップログイン（Discoverable）」を併記。
 - 初回導入: メールログイン成功後に登録ボタンを提示し、自然な移行を促す。
+- ユーザーレス認証: discoverable credentials 対応端末では、ユーザー識別子入力を省略可能。
+- フォールバック: パスキー非対応やエラー時は従来のMagic Linkに自動切り替え。
 
 ---
 
@@ -98,14 +107,23 @@
 
 サンプル用途として examples/simple に最小の JS を追加する設計を定義（詳細実装は別 PR）。
 
-- 登録フロー
+- 登録フロー（メディエーション付き）
   1) email を送信 → /webauthn/register/start
-  2) 返却された options を navigator.credentials.create に渡す
+  2) 返却された options を navigator.credentials.create に渡す（mediation: "required"）
   3) 得られた attestation を /webauthn/register/finish へ POST
-- ログインフロー
-  1) （discoverable 対応なら email 入力省略可）/webauthn/login/start
+- ログインフロー（従来方式）
+  1) email を送信 → /webauthn/login/start
   2) options を navigator.credentials.get に渡す
   3) assertion を /webauthn/login/finish へ POST → セッションセット → リダイレクト
+- ディスカバラブルログインフロー（新規追加）
+  1) ユーザー入力なし → /webauthn/login/discoverable
+  2) options を navigator.credentials.get に渡す（mediation: "conditional" または "required"）
+  3) assertion を /webauthn/login/finish へ POST → セッションセット → リダイレクト
+
+UI実装の考慮点：
+- PublicKeyCredential.isConditionalMediationAvailable() でブラウザサポートを確認
+- credential.type === "public-key" で WebAuthn サポートを検証
+- エラー時は具体的なガイダンスを表示（「別の方法でログイン」リンク等）
 
 ユーザー識別子（user.id, user.name, user.displayName）には、既存の email ベースを踏襲。user.id は stable なバイト列（例: email のハッシュ）を使用。
 
@@ -113,13 +131,18 @@
 
 ## 6. セキュリティ設計
 
-- Origin/RP ID 検証: サーバ側で request.origin と rpID の整合を検証。
+- Origin/RP ID 検証: サーバ側で request.origin と rpID の整合を検証。v0.14.0 では top origin の検証も追加対応。
 - Challenge 一意性と期限: start で生成、短期で失効（例: 5 分）。使い回し禁止。
 - Sign Count: assertion 検証時に増加チェック。巻き戻り検知で警告/ブロック。
 - Attestation: 初期は none/basic に限定し、AAGUID/Trust Store 検証は将来拡張。
+- メタデータ検証: v0.14.0 のメタデータサービス連携により、認証器の信頼性検証を強化。
 - 送受信データのエンコード: base64url（padding 無し）統一。
+- タイムアウト設定: 認証操作のタイムアウトをきめ細かく設定（登録60秒、認証30秒等）。
+- User Verification: "required" 設定により生体認証やPINの強制を選択可能。
 - 盗難・移行: 端末紛失時の無効化フロー（管理 UI で Credential を無効化）を将来計画。
 - ログ: 機密データ（鍵素材/生体情報）は記録しない。ID とエラーコード中心。
+- セッション固定化対策: WebAuthn 成功後は新しいセッションIDを発行。
+- リプレイ攻撃対策: challengeとsignCountによる二重防御を実装。
 
 ---
 
@@ -138,24 +161,38 @@
   - [ ] leveldb 実装
 - [ ] WebAuthn サービス層
   - [ ] 依存追加: github.com/go-webauthn/webauthn v0.14.0
-  - [ ] RP 設定構造体（rpID, rpName, origins）
+  - [ ] RP 設定構造体（rpID, rpName, origins, timeout, metadataValidation）
   - [ ] チャレンジ生成/保存/検証（SessionData の保存/復元を含む）
   - [ ] go-webauthn による Attestation/Assertion 検証
   - [ ] webauthn.User インターフェイスを満たす User アダプタの実装（WebAuthnID/Name/DisplayName/Credentials）
+  - [ ] **新規**: BeginMediatedRegistration 対応
+  - [ ] **新規**: BeginDiscoverableLogin 対応
+  - [ ] **新規**: FinishPasskeyLogin 対応
+  - [ ] **新規**: メタデータ検証機能の統合
 - [ ] ハンドラ追加（/webauthn/*）
   - [ ] start/finish のリクエスト/レスポンス定義
+  - [ ] **新規**: /webauthn/login/discoverable エンドポイント
   - [ ] セッション発行（成功時）
   - [ ] エラーレスポンスとログ整理
+  - [ ] **新規**: 条件付きメディエーション対応
 - [ ] サンプル UI（examples/simple）
   - [ ] 登録/ログインボタンと最小 JS
+  - [ ] **新規**: ディスカバラブルログイン UI
+  - [ ] **新規**: 条件付きメディエーション検出機能
   - [ ] 成功/失敗の表示
+  - [ ] **新規**: ブラウザサポート検証機能
 - [ ] 設定項目追加
   - [ ] Config に rpID, rpName, AllowedOrigins
+  - [ ] **新規**: Config にタイムアウト設定追加
+  - [ ] **新規**: Config にメタデータ検証設定追加
   - [ ] README 更新
 - [ ] テスト
   - [ ] 単体: チャレンジ、検証、signCount
   - [ ] 結合: start→finish の往復
+  - [ ] **新規**: ディスカバラブルログインの往復テスト
+  - [ ] **新規**: メディエーション機能のテスト
   - [ ] セキュリティ: 不正オリジン、期限切れ、signCount 巻き戻り
+  - [ ] **新規**: メタデータ検証のセキュリティテスト
 
 ---
 
@@ -172,18 +209,35 @@
   - Attestation は当面 "none" を基本。UserVerification は "preferred" から開始（運用で調整）。
 - 簡易統合例（疑似コード）
   - 初期化
-    - cfg := webauthn.Config{ RPDisplayName: rpName, RPID: rpID, RPOrigins: allowedOrigins }
+    - cfg := webauthn.Config{
+        RPDisplayName: rpName,
+        RPID: rpID,
+        RPOrigins: allowedOrigins,
+        AuthenticatorSelection: protocol.AuthenticatorSelection{
+          RequireResidentKey: protocol.ResidentKeyRequired(),
+          UserVerification: protocol.VerificationPreferred,
+        },
+        Timeout: 60000, // 60秒
+      }
     - wan, _ := webauthn.New(&cfg)
-  - 登録開始
+  - 登録開始（メディエーション付き）
     - user := lookupUserByEmail(email) // user は webauthn.User を満たす
-    - opts, sessionData, _ := wan.BeginRegistration(user, webauthn.WithResidentKeyRequirement(...), webauthn.WithUserVerification(...))
+    - opts, sessionData, _ := wan.BeginMediatedRegistration(user)
     - saveSessionData(challengeID, sessionData)
     - return opts
   - 登録完了
     - sessionData := loadSessionData(challengeID)
     - cred, _ := wan.FinishRegistration(user, sessionData, httpRequest)
     - persistCredential(user.ID, cred.ID, cred.PublicKey, cred.Flags, cred.Authenticator.AAGUID, cred.Authenticator.SignCount, ...)
-  - 認証開始/完了も同様に BeginLogin/FinishLogin を使用。
+  - ディスカバラブル認証開始
+    - opts, sessionData, _ := wan.BeginDiscoverableLogin()
+    - saveSessionData(challengeID, sessionData)
+    - return opts
+  - 認証完了（パスキー専用）
+    - sessionData := loadSessionData(challengeID)
+    - user, cred, _ := wan.FinishPasskeyLogin(sessionData, httpRequest)
+    - updateSignCount(cred.ID, cred.Authenticator.SignCount)
+    - issueSession(user)
 
 注: 具体的な型名や引数は v0.14.0 の API に合わせること。必要に応じて protocol パッケージのオプション型を利用する。
 
@@ -194,7 +248,12 @@
 - Config 追加案（magiclink.Config）
   - RP 設定: WebAuthnRPID string, WebAuthnRPName string, WebAuthnAllowedOrigins []string
   - 時限: WebAuthnChallengeTTL time.Duration（既定 5m）
+  - **新規**: WebAuthnTimeout time.Duration（認証タイムアウト、既定60秒）
+  - **新規**: WebAuthnMetadataValidation bool（メタデータ検証有効化、既定false）
+  - **新規**: WebAuthnUserVerification string（"required"/"preferred"/"discouraged"、既定"preferred"）
+  - **新規**: WebAuthnRequireResidentKey bool（resident key要求、既定true）
 - .env サンプルへの追記と README の利用方法を更新。
+- 開発環境での設定例を追加（localhost、自己署名証明書対応等）。
 
 ---
 
@@ -205,6 +264,8 @@
   - e.POST("/webauthn/register/finish", handlers.WebAuthnRegisterFinish(...))
   - e.POST("/webauthn/login/start", handlers.WebAuthnLoginStart(...))
   - e.POST("/webauthn/login/finish", handlers.WebAuthnLoginFinish(...))
+  - **新規**: e.POST("/webauthn/login/discoverable", handlers.WebAuthnDiscoverableLoginStart(...))
+- 条件付きルーティング: WebAuthn 機能の有効/無効によるルート登録の制御を実装。
 
 ---
 
@@ -213,6 +274,9 @@
 - 一般エラーは JSON。アプリ側 UI でハンドリング。
 - discoverable credentials を使う場合、email 入力無しで "Use a passkey" を出せる。
 - 失敗時のガイド（別端末/別ブラウザ/セキュリティキー）をメッセージで案内。
+- **新規**: 条件付きメディエーション非対応時のフォールバック UI。
+- **新規**: メタデータ検証失敗時の適切なエラーメッセージ。
+- **新規**: タイムアウト時のユーザーフレンドリーなガイダンス。
 
 ---
 
