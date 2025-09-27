@@ -51,6 +51,8 @@ func main() {
 	config.SMTPFrom = getEnv("SMTP_FROM", "your-email@example.com")
 	config.SMTPFromName = getEnv("SMTP_FROM_NAME", "Magic Link Example")
 	config.ServerAddr = getEnv("SERVER_ADDR", "http://localhost:8080")
+	// Configure error redirect for verify failures to render a friendly page in this example app
+	config.ErrorRedirectURL = "/error"
 
 	// Set the path to the file containing email addresses that should bypass email sending
 	config.DevBypassEmailFilePath = getEnv("DEV_BYPASS_EMAIL_FILE", "dev_bypass_emails.txt")
@@ -93,6 +95,18 @@ Content-Transfer-Encoding: 8bit
 
 	// Register the authentication handlers
 	ml.RegisterHandlers(e)
+
+	// Error page route for verify failures
+	e.GET("/error", func(c echo.Context) error {
+		errorCode := c.QueryParam("error")
+		description := c.QueryParam("error_description")
+		statusCode := c.QueryParam("code")
+		return c.Render(http.StatusOK, "error.html", map[string]interface{}{
+			"error":             errorCode,
+			"error_description": description,
+			"code":              statusCode,
+		})
+	})
 
 	// Public routes
 	e.GET("/", func(c echo.Context) error {
