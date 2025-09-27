@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
+	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
@@ -99,7 +100,27 @@ func (m *mockDB) GetSessionByHash(sessionHash string) (sessionID, userID string,
 }
 func (m *mockDB) DeleteSession(sessionHash string) error { delete(m.sessions, sessionHash); return nil }
 func (m *mockDB) CleanupExpiredSessions() error          { return nil }
-func (m *mockDB) Ping() error                            { return nil }
+
+// Passkey-related methods (stubs for testing)
+func (m *mockDB) SavePasskeyCredential(cred *storage.PasskeyCredential) error { return nil }
+func (m *mockDB) GetPasskeyCredentialByID(credentialID string) (*storage.PasskeyCredential, error) {
+	return nil, nil
+}
+func (m *mockDB) GetPasskeyCredentialsByUserID(userID string) ([]*storage.PasskeyCredential, error) {
+	return nil, nil
+}
+func (m *mockDB) DeletePasskeyCredential(credentialID string) error { return nil }
+func (m *mockDB) UpdatePasskeyCredentialSignCount(credentialID string, signCount uint32) error {
+	return nil
+}
+func (m *mockDB) SavePasskeyChallenge(challenge *storage.PasskeyChallenge) error { return nil }
+func (m *mockDB) GetPasskeyChallenge(challengeID string) (*storage.PasskeyChallenge, error) {
+	return nil, nil
+}
+func (m *mockDB) DeletePasskeyChallenge(challengeID string) error { return nil }
+func (m *mockDB) CleanupExpiredPasskeyChallenges() error          { return nil }
+
+func (m *mockDB) Ping() error { return nil }
 
 // helper to set up Echo, managers and perform request
 func setup(t *testing.T) (*echo.Echo, *token.Manager, *session.Manager, *mockDB) {
