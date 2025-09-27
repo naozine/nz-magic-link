@@ -51,8 +51,10 @@
 - PasskeyCredential（新規）
   - id: base64url(credentialID) — 主キー
   - user_id: 既存ユーザー識別子（メールを主キーにしている場合は email）
-  - public_key: CBOR もしくは raw 公開鍵バイト（実装ライブラリに依存）
+  - public_key: ライブラリが返す公開鍵バイト（COSE 公開鍵の raw。go-webauthn に準拠）
   - sign_count: uint32（リプレイ防止）
+  - aaguid: string（任意）
+  - attestation_type: string（任意）
   - transports: []string（任意）
   - created_at, updated_at
 - PasskeyChallenge（新規; 短期保持）
@@ -60,6 +62,7 @@
   - user_id（登録時任意/推奨）, type: "attestation"|"assertion"
   - challenge: ランダムバイト（base64url）
   - expires_at
+  - session_data_json: BeginRegistration/BeginLogin が返す webauthn.SessionData を JSON 化して保存
   - request_options_snapshot: フロントへ返した PublicKeyCredentialCreation/RequestOptions の一部（検証補助）
 
 保存先は既存の storage 抽象化に合わせ、sqlite/leveldb 実装へ最小追加する。
@@ -67,17 +70,19 @@
 ### 4.3 API エンドポイント（案）
 - POST /webauthn/register/start
   - 入力: { email }（既存ユーザー紐付けのため）
+  - 動作: go-webauthn/webauthn v0.14.0 の BeginRegistration を呼び出し、options と sessionData を取得。sessionData は PasskeyChallenge.session_data_json に保存。
   - 出力: PublicKeyCredentialCreationOptions（JSON）
 - POST /webauthn/register/finish
   - 入力: クライアントからの attestationResponse
-  - 動作: 署名/オリジン/RPID 検証、公開鍵抽出、Credential 保存
+  - 動作: Begin 時に保存した sessionData を用いて FinishRegistration を実行。署名/オリジン/RPID 検証を通過後、Credential 情報（ID/PublicKey/SignCount/AAGUID 等）を保存。
   - 出力: 成功可否
 - POST /webauthn/login/start
   - 入力: { email }（ユーザー探索用; discoverable credentials を優先する場合は省略可）
+  - 動作: BeginLogin を呼び出し、options と sessionData を取得。sessionData を保存。
   - 出力: PublicKeyCredentialRequestOptions（JSON）
 - POST /webauthn/login/finish
   - 入力: assertionResponse
-  - 動作: 署名検証、signCount 更新、セッション発行（既存フロー）
+  - 動作: 保存した sessionData を用いて FinishLogin を実行。署名検証、signCount の増加チェック・更新、セッション発行（既存フロー）。
   - 出力: 成功可否 or リダイレクト
 
 注: CORS/CSRF を考慮し、ブラウザ発呼限定であれば SameSite/HTTPS 運用を前提にする。
@@ -132,9 +137,11 @@
   - [ ] sqlite 実装
   - [ ] leveldb 実装
 - [ ] WebAuthn サービス層
+  - [ ] 依存追加: github.com/go-webauthn/webauthn v0.14.0
   - [ ] RP 設定構造体（rpID, rpName, origins）
-  - [ ] チャレンジ生成/保存/検証
-  - [ ] Attestation/Assertion 検証（ライブラリ選定もしくは実装）
+  - [ ] チャレンジ生成/保存/検証（SessionData の保存/復元を含む）
+  - [ ] go-webauthn による Attestation/Assertion 検証
+  - [ ] webauthn.User インターフェイスを満たす User アダプタの実装（WebAuthnID/Name/DisplayName/Credentials）
 - [ ] ハンドラ追加（/webauthn/*）
   - [ ] start/finish のリクエスト/レスポンス定義
   - [ ] セッション発行（成功時）
@@ -152,15 +159,33 @@
 
 ---
 
-## 9. ライブラリ選定（Go）
+## 9. 採用ライブラリ（Go）: github.com/go-webauthn/webauthn v0.14.0
 
-最小実装を優先しつつ、信頼性の高いライブラリ検討。
+- 採用理由
+  - 活発なメンテナンスと最新仕様への追随、Go 向けの実績。
+  - BeginRegistration/BeginLogin と FinishRegistration/FinishLogin によるシンプルなフロー管理（SessionData 提供）。
+  - User/Credential インターフェイスが明確で、既存ユーザー/ストレージへ適合させやすい。
+- 導入ポイント（サマリ）
+  - go.mod に github.com/go-webauthn/webauthn v0.14.0 を追加。
+  - WebAuthn インスタンス生成時に RPDisplayName, RPID, RPIcon（任意）を設定。
+  - フロントへ返す options と同時に返却される SessionData を短期保存し、finish 側で必ず復元して検証する。
+  - Attestation は当面 "none" を基本。UserVerification は "preferred" から開始（運用で調整）。
+- 簡易統合例（疑似コード）
+  - 初期化
+    - cfg := webauthn.Config{ RPDisplayName: rpName, RPID: rpID, RPOrigins: allowedOrigins }
+    - wan, _ := webauthn.New(&cfg)
+  - 登録開始
+    - user := lookupUserByEmail(email) // user は webauthn.User を満たす
+    - opts, sessionData, _ := wan.BeginRegistration(user, webauthn.WithResidentKeyRequirement(...), webauthn.WithUserVerification(...))
+    - saveSessionData(challengeID, sessionData)
+    - return opts
+  - 登録完了
+    - sessionData := loadSessionData(challengeID)
+    - cred, _ := wan.FinishRegistration(user, sessionData, httpRequest)
+    - persistCredential(user.ID, cred.ID, cred.PublicKey, cred.Flags, cred.Authenticator.AAGUID, cred.Authenticator.SignCount, ...)
+  - 認証開始/完了も同様に BeginLogin/FinishLogin を使用。
 
-- 候補
-  - github.com/duo-labs/webauthn (メジャー)
-  - github.com/go-webauthn/webauthn (フォーク/後継傾向)
-- 方針
-  - まず duo-labs か go-webauthn のどちらかを採用し、抽象化層を薄く設けて将来差し替えを容易に。
+注: 具体的な型名や引数は v0.14.0 の API に合わせること。必要に応じて protocol パッケージのオプション型を利用する。
 
 ---
 
@@ -224,6 +249,7 @@
 
 ## 16. 参考
 
+- go-webauthn/webauthn v0.14.0: https://github.com/go-webauthn/webauthn
 - W3C WebAuthn Level 2/3
 - FIDO Alliance: Passkeys
 - Duo Labs WebAuthn (Go)
