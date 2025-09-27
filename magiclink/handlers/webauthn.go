@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/labstack/echo/v4"
@@ -76,9 +77,17 @@ func (h *WebAuthnHandlers) RegisterStart(c echo.Context) error {
 		})
 	}
 
-	if err := c.Validate(&req); err != nil {
+	// Basic validation
+	if req.Email == "" {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: err.Error(),
+			Error: "Email is required",
+		})
+	}
+	// Simple email validation
+	parts := strings.Split(req.Email, "@")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || !strings.Contains(parts[1], ".") {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid email format",
 		})
 	}
 
@@ -161,7 +170,7 @@ func (h *WebAuthnHandlers) LoginFinish(c echo.Context) error {
 	})
 }
 
-// Helper method to register all WebAuthn routes
+// RegisterRoutes Helper method to register all WebAuthn routes
 func (h *WebAuthnHandlers) RegisterRoutes(e *echo.Echo) {
 	webauthn := e.Group("/webauthn")
 
