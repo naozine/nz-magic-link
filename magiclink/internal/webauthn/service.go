@@ -4,6 +4,7 @@ package webauthn
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -103,8 +104,40 @@ func (s *Service) CreateUser(email string) (*User, error) {
 
 // BeginRegistration starts passkey registration (mediated)
 func (s *Service) BeginRegistration(email string) (*protocol.CredentialCreation, string, error) {
-	// Placeholder implementation - to be completed when WebAuthn API is stabilized
-	return nil, "", fmt.Errorf("passkey registration not yet implemented")
+	// Create or get user
+	user, err := s.CreateUser(email)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create user: %w", err)
+	}
+
+	// Begin registration with WebAuthn
+	creation, sessionData, err := s.webauthn.BeginRegistration(user)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to begin registration: %w", err)
+	}
+
+	// Generate challenge ID
+	challengeID, err := s.generateChallengeID()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate challenge ID: %w", err)
+	}
+
+	// Store challenge in database
+	challenge := &storage.PasskeyChallenge{
+		ID:                     challengeID,
+		UserID:                 email,
+		Type:                   "attestation",
+		Challenge:              sessionData.Challenge,
+		ExpiresAt:              time.Now().Add(s.config.ChallengeTTL),
+		SessionDataJSON:        s.encodeSessionData(sessionData),
+		RequestOptionsSnapshot: s.encodeCreationOptions(creation),
+	}
+
+	if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
+		return nil, "", fmt.Errorf("failed to save challenge: %w", err)
+	}
+
+	return creation, challengeID, nil
 }
 
 // FinishRegistration completes passkey registration
@@ -181,4 +214,24 @@ func transportProtocols(transports []string) []protocol.AuthenticatorTransport {
 		result[i] = protocol.AuthenticatorTransport(t)
 	}
 	return result
+}
+
+// encodeSessionData serializes WebAuthn session data to JSON
+func (s *Service) encodeSessionData(sessionData *webauthn.SessionData) string {
+	data, err := json.Marshal(sessionData)
+	if err != nil {
+		// Log error but don't fail the operation
+		return "{}"
+	}
+	return string(data)
+}
+
+// encodeCreationOptions serializes credential creation options to JSON
+func (s *Service) encodeCreationOptions(options *protocol.CredentialCreation) string {
+	data, err := json.Marshal(options)
+	if err != nil {
+		// Log error but don't fail the operation
+		return "{}"
+	}
+	return string(data)
 }
