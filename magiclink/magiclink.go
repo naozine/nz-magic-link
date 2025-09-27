@@ -66,6 +66,7 @@ type Config struct {
 	VerifyURL         string
 	RedirectURL       string
 	LogoutRedirectURL string
+	ErrorRedirectURL  string
 	EmailTemplate     string
 	EmailSubject      string
 	ServerAddr        string
@@ -97,6 +98,7 @@ func DefaultConfig() Config {
 		VerifyURL:              "/auth/verify",
 		RedirectURL:            "/",
 		LogoutRedirectURL:      "/",
+		ErrorRedirectURL:       "",
 		EmailSubject:           "Your Magic Link for Authentication",
 		ServerAddr:             "http://localhost:8080",
 		MaxLoginAttempts:       5,
@@ -209,6 +211,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.TokenManager,
 		m.SessionManager,
 		m.Config.RedirectURL,
+		m.Config.ErrorRedirectURL,
 	))
 
 	// Register the logout handler
