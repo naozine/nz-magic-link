@@ -3,6 +3,7 @@ package webauthn
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -85,8 +86,10 @@ func (u *User) WebAuthnIcon() string {
 
 // CreateUser creates a WebAuthn user from email
 func (s *Service) CreateUser(email string) (*User, error) {
-	// Generate a stable user ID from email hash
-	userID := []byte(email) // In production, use a hash like SHA-256(email)
+	// Generate a stable user ID from email
+	// Use a hash of the email to create a consistent byte array
+	h := sha256.Sum256([]byte(email))
+	userID := h[:]
 
 	// Get existing credentials for the user
 	credentials, err := s.getWebAuthnCredentials(email)

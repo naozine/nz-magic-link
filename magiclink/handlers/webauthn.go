@@ -93,10 +93,15 @@ func (h *WebAuthnHandlers) RegisterStart(c echo.Context) error {
 
 	options, challengeID, err := h.webauthn.BeginRegistration(req.Email)
 	if err != nil {
+		// Log the actual error for debugging
+		c.Logger().Errorf("BeginRegistration failed: %v", err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to start registration",
 		})
 	}
+
+	// Log successful response for debugging
+	c.Logger().Infof("BeginRegistration successful - ChallengeID: %s", challengeID)
 
 	return c.JSON(http.StatusOK, RegisterStartResponse{
 		ChallengeID: challengeID,
