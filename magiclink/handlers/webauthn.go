@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -43,8 +44,8 @@ type RegisterStartResponse struct {
 }
 
 type RegisterFinishRequest struct {
-	ChallengeID string                                 `json:"challenge_id" validate:"required"`
-	Response    *protocol.ParsedCredentialCreationData `json:"response" validate:"required"`
+	ChallengeID string      `json:"challenge_id" validate:"required"`
+	Response    interface{} `json:"response" validate:"required"`
 }
 
 type LoginStartRequest struct {
@@ -131,8 +132,24 @@ func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
 		})
 	}
 
+	// Parse the WebAuthn response
+	responseBytes, err := json.Marshal(req.Response)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid WebAuthn response format",
+		})
+	}
+
+	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(responseBytes)
+	if err != nil {
+		c.Logger().Errorf("Failed to parse WebAuthn response: %v", err)
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Failed to parse WebAuthn response",
+		})
+	}
+
 	// Complete registration with WebAuthn service
-	err := h.webauthn.FinishRegistration(req.ChallengeID, req.Response)
+	err = h.webauthn.FinishRegistration(req.ChallengeID, parsedResponse)
 	if err != nil {
 		c.Logger().Errorf("FinishRegistration failed: %v", err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
