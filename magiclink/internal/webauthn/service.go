@@ -218,8 +218,50 @@ func (s *Service) FinishRegistration(challengeID string, response *protocol.Pars
 
 // BeginLogin starts passkey authentication
 func (s *Service) BeginLogin(email string) (*protocol.CredentialAssertion, string, error) {
-	// Placeholder implementation - to be completed when WebAuthn API is stabilized
-	return nil, "", fmt.Errorf("passkey login not yet implemented")
+	// Create or get user
+	user, err := s.CreateUser(email)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create user: %w", err)
+	}
+
+	// Check if user has any credentials
+	if len(user.credentials) == 0 {
+		return nil, "", fmt.Errorf("no passkey credentials found for user %s", email)
+	}
+
+	// Begin login with WebAuthn
+	assertion, sessionData, err := s.webauthn.BeginLogin(user)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to begin login: %w", err)
+	}
+
+	// Generate challenge ID
+	challengeID, err := s.generateChallengeID()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate challenge ID: %w", err)
+	}
+
+	// Store challenge in database
+	challenge := &storage.PasskeyChallenge{
+		ID:                     challengeID,
+		UserID:                 email,
+		Type:                   "assertion",
+		Challenge:              sessionData.Challenge,
+		ExpiresAt:              time.Now().Add(s.config.ChallengeTTL),
+		SessionDataJSON:        s.encodeSessionData(sessionData),
+		RequestOptionsSnapshot: s.encodeAssertionOptions(assertion),
+	}
+
+	if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
+		return nil, "", fmt.Errorf("failed to save challenge: %w", err)
+	}
+
+	fmt.Printf("✓ Passkey login challenge created:\n")
+	fmt.Printf("  - Challenge ID: %s\n", challengeID)
+	fmt.Printf("  - User ID: %s\n", email)
+	fmt.Printf("  - Credentials found: %d\n", len(user.credentials))
+
+	return assertion, challengeID, nil
 }
 
 // BeginDiscoverableLogin starts discoverable (userless) authentication
@@ -230,8 +272,65 @@ func (s *Service) BeginDiscoverableLogin() (*protocol.CredentialAssertion, strin
 
 // FinishLogin completes passkey authentication
 func (s *Service) FinishLogin(challengeID string, response *protocol.ParsedCredentialAssertionData) (string, error) {
-	// Placeholder implementation - to be completed when WebAuthn API is stabilized
-	return "", fmt.Errorf("passkey login finish not yet implemented")
+	// Get challenge from database
+	challenge, err := s.storage.GetPasskeyChallenge(challengeID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get challenge: %w", err)
+	}
+
+	// Check if challenge is expired
+	if time.Now().After(challenge.ExpiresAt) {
+		s.storage.DeletePasskeyChallenge(challengeID) // Clean up expired challenge
+		return "", fmt.Errorf("challenge has expired")
+	}
+
+	// Check challenge type
+	if challenge.Type != "assertion" {
+		return "", fmt.Errorf("invalid challenge type for login: %s", challenge.Type)
+	}
+
+	// Decode session data from JSON
+	var sessionData webauthn.SessionData
+	if err := json.Unmarshal([]byte(challenge.SessionDataJSON), &sessionData); err != nil {
+		return "", fmt.Errorf("failed to decode session data: %w", err)
+	}
+
+	// Create user for verification
+	user, err := s.CreateUser(challenge.UserID)
+	if err != nil {
+		return "", fmt.Errorf("failed to create user: %w", err)
+	}
+
+	// Check if user has any credentials
+	if len(user.credentials) == 0 {
+		return "", fmt.Errorf("no passkey credentials found for user %s", challenge.UserID)
+	}
+
+	// Use WebAuthn library to validate credential
+	credential, err := s.webauthn.ValidateLogin(user, sessionData, response)
+	if err != nil {
+		return "", fmt.Errorf("failed to validate login: %w", err)
+	}
+
+	// Update credential sign count
+	credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
+	if err := s.storage.UpdatePasskeyCredentialSignCount(credentialID, credential.Authenticator.SignCount); err != nil {
+		// Log but don't fail the operation
+		fmt.Printf("Warning: failed to update sign count for credential %s: %v\n", credentialID, err)
+	}
+
+	// Clean up challenge
+	if err := s.storage.DeletePasskeyChallenge(challengeID); err != nil {
+		// Log but don't fail the operation
+		fmt.Printf("Warning: failed to delete challenge %s: %v\n", challengeID, err)
+	}
+
+	fmt.Printf("✓ Passkey login completed successfully:\n")
+	fmt.Printf("  - User ID: %s\n", challenge.UserID)
+	fmt.Printf("  - Credential ID: %s\n", credentialID)
+	fmt.Printf("  - New Sign Count: %d\n", credential.Authenticator.SignCount)
+
+	return challenge.UserID, nil
 }
 
 // Helper methods - placeholder implementations
@@ -298,6 +397,16 @@ func (s *Service) encodeSessionData(sessionData *webauthn.SessionData) string {
 
 // encodeCreationOptions serializes credential creation options to JSON
 func (s *Service) encodeCreationOptions(options *protocol.CredentialCreation) string {
+	data, err := json.Marshal(options)
+	if err != nil {
+		// Log error but don't fail the operation
+		return "{}"
+	}
+	return string(data)
+}
+
+// encodeAssertionOptions serializes credential assertion options to JSON
+func (s *Service) encodeAssertionOptions(options *protocol.CredentialAssertion) string {
 	data, err := json.Marshal(options)
 	if err != nil {
 		// Log error but don't fail the operation

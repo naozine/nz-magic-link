@@ -73,8 +73,24 @@ type LoginStartResponse struct {
 }
 
 type LoginFinishRequest struct {
-	ChallengeID string                                  `json:"challenge_id" validate:"required"`
-	Response    *protocol.ParsedCredentialAssertionData `json:"response" validate:"required"`
+	ChallengeID string               `json:"challenge_id" validate:"required"`
+	Response    RawWebAuthnAssertion `json:"response" validate:"required"`
+}
+
+// RawWebAuthnAssertion represents the raw assertion data from the client
+type RawWebAuthnAssertion struct {
+	ID       string                        `json:"id"`
+	RawID    []byte                        `json:"rawId"`
+	Response RawAuthenticatorAssertionResp `json:"response"`
+	Type     string                        `json:"type"`
+}
+
+// RawAuthenticatorAssertionResp represents the raw authenticator assertion response
+type RawAuthenticatorAssertionResp struct {
+	AuthenticatorData []byte `json:"authenticatorData"`
+	ClientDataJSON    []byte `json:"clientDataJSON"`
+	Signature         []byte `json:"signature"`
+	UserHandle        []byte `json:"userHandle,omitempty"`
 }
 
 type LoginFinishResponse struct {
@@ -212,12 +228,17 @@ func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
 
 // LoginStart handles the start of passkey authentication
 func (h *WebAuthnHandlers) LoginStart(c echo.Context) error {
+	c.Logger().Infof("LoginStart: Starting passkey authentication")
+
 	var req LoginStartRequest
 	if err := c.Bind(&req); err != nil {
+		c.Logger().Errorf("LoginStart: Failed to bind request: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format",
 		})
 	}
+
+	c.Logger().Infof("LoginStart: Request bound successfully - Email: %s", req.Email)
 
 	var options *protocol.CredentialAssertion
 	var challengeID string
@@ -225,17 +246,22 @@ func (h *WebAuthnHandlers) LoginStart(c echo.Context) error {
 
 	if req.Email != "" {
 		// User-identified login
+		c.Logger().Infof("LoginStart: Using user-identified login for email: %s", req.Email)
 		options, challengeID, err = h.webauthn.BeginLogin(req.Email)
 	} else {
 		// Discoverable login
+		c.Logger().Infof("LoginStart: Using discoverable login (no email provided)")
 		options, challengeID, err = h.webauthn.BeginDiscoverableLogin()
 	}
 
 	if err != nil {
+		c.Logger().Errorf("LoginStart: Failed to start login: %v", err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to start login",
 		})
 	}
+
+	c.Logger().Infof("LoginStart: Login challenge created successfully - ChallengeID: %s", challengeID)
 
 	return c.JSON(http.StatusOK, LoginStartResponse{
 		ChallengeID: challengeID,
@@ -260,10 +286,103 @@ func (h *WebAuthnHandlers) DiscoverableLoginStart(c echo.Context) error {
 
 // LoginFinish handles the completion of passkey authentication
 func (h *WebAuthnHandlers) LoginFinish(c echo.Context) error {
-	// For now, return a placeholder response
-	// This would be implemented once the WebAuthn service API is stabilized
-	return c.JSON(http.StatusNotImplemented, ErrorResponse{
-		Error: "Passkey login finish is not yet implemented",
+	c.Logger().Infof("LoginFinish: Starting passkey authentication completion")
+
+	var req LoginFinishRequest
+	if err := c.Bind(&req); err != nil {
+		c.Logger().Errorf("LoginFinish: Failed to bind request: %v", err)
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid request format",
+		})
+	}
+
+	c.Logger().Infof("LoginFinish: Request bound successfully - ChallengeID: %s", req.ChallengeID)
+
+	// Validate required fields
+	if req.ChallengeID == "" {
+		c.Logger().Errorf("LoginFinish: Challenge ID is empty")
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Challenge ID is required",
+		})
+	}
+
+	if req.Response.ID == "" {
+		c.Logger().Errorf("LoginFinish: WebAuthn response ID is empty")
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "WebAuthn response is required",
+		})
+	}
+
+	c.Logger().Infof("LoginFinish: Basic validation passed, converting WebAuthn response")
+
+	// Convert the raw assertion data to the format expected by the WebAuthn library
+	webauthnResponse := map[string]interface{}{
+		"id":    req.Response.ID,
+		"rawId": base64.RawURLEncoding.EncodeToString(req.Response.RawID),
+		"response": map[string]interface{}{
+			"authenticatorData": base64.RawURLEncoding.EncodeToString(req.Response.Response.AuthenticatorData),
+			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(req.Response.Response.ClientDataJSON),
+			"signature":         base64.RawURLEncoding.EncodeToString(req.Response.Response.Signature),
+		},
+		"type": req.Response.Type,
+	}
+
+	// Add userHandle if present
+	if len(req.Response.Response.UserHandle) > 0 {
+		webauthnResponse["response"].(map[string]interface{})["userHandle"] = base64.RawURLEncoding.EncodeToString(req.Response.Response.UserHandle)
+	}
+
+	c.Logger().Infof("LoginFinish: Assertion data converted to proper format")
+
+	// Convert to JSON bytes for parsing
+	responseBytes, err := json.Marshal(webauthnResponse)
+	if err != nil {
+		c.Logger().Errorf("LoginFinish: Failed to marshal converted response: %v", err)
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Failed to process WebAuthn response",
+		})
+	}
+
+	c.Logger().Debugf("LoginFinish: Converted response bytes: %s", string(responseBytes))
+
+	// Parse the WebAuthn response
+	parsedResponse, err := protocol.ParseCredentialRequestResponseBytes(responseBytes)
+	if err != nil {
+		c.Logger().Errorf("LoginFinish: Failed to parse converted WebAuthn response: %v", err)
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Failed to parse WebAuthn response",
+		})
+	}
+
+	c.Logger().Infof("LoginFinish: WebAuthn response parsed successfully")
+
+	// Complete login with WebAuthn service
+	userID, err := h.webauthn.FinishLogin(req.ChallengeID, parsedResponse)
+	if err != nil {
+		c.Logger().Errorf("LoginFinish: FinishLogin failed: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to complete passkey authentication",
+		})
+	}
+
+	c.Logger().Infof("LoginFinish: Authentication successful for user: %s", userID)
+
+	// Create session for the authenticated user
+	err = h.sessionManager.Create(c, userID)
+	if err != nil {
+		c.Logger().Errorf("LoginFinish: Failed to create session: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to create user session",
+		})
+	}
+
+	c.Logger().Infof("LoginFinish: Session created successfully for user: %s", userID)
+
+	c.Logger().Infof("LoginFinish: Passkey authentication completed successfully for user: %s", userID)
+
+	return c.JSON(http.StatusOK, LoginFinishResponse{
+		Success:     true,
+		RedirectURL: "/dashboard", // Redirect to dashboard after successful login
 	})
 }
 
