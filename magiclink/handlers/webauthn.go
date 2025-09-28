@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -43,8 +45,22 @@ type RegisterStartResponse struct {
 }
 
 type RegisterFinishRequest struct {
-	ChallengeID string      `json:"challenge_id" validate:"required"`
-	Response    interface{} `json:"response" validate:"required"`
+	ChallengeID string                `json:"challenge_id" validate:"required"`
+	Response    RawWebAuthnCredential `json:"response" validate:"required"`
+}
+
+// RawWebAuthnCredential represents the raw credential data from the client
+type RawWebAuthnCredential struct {
+	ID       string                   `json:"id"`
+	RawID    []byte                   `json:"rawId"`
+	Response RawAuthenticatorResponse `json:"response"`
+	Type     string                   `json:"type"`
+}
+
+// RawAuthenticatorResponse represents the raw authenticator response
+type RawAuthenticatorResponse struct {
+	AttestationObject []byte `json:"attestationObject"`
+	ClientDataJSON    []byte `json:"clientDataJSON"`
 }
 
 type LoginStartRequest struct {
@@ -131,8 +147,8 @@ func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
 		})
 	}
 
-	if req.Response == nil {
-		c.Logger().Errorf("RegisterFinish: WebAuthn response is nil")
+	if req.Response.ID == "" {
+		c.Logger().Errorf("RegisterFinish: WebAuthn response ID is empty")
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "WebAuthn response is required",
 		})
@@ -140,18 +156,42 @@ func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
 
 	c.Logger().Infof("RegisterFinish: Basic validation passed, parsing WebAuthn response")
 
-	c.Logger().Infof("RegisterFinish: Parsing WebAuthn response directly from HTTP request")
+	c.Logger().Infof("RegisterFinish: Converting raw credential data to proper format")
 
-	// Parse the WebAuthn response directly from the HTTP request
-	parsedResponse, err := protocol.ParseCredentialCreationResponse(c.Request())
+	// Convert the raw credential data to the format expected by the WebAuthn library
+	webauthnResponse := map[string]interface{}{
+		"id":    req.Response.ID,
+		"rawId": base64.RawURLEncoding.EncodeToString(req.Response.RawID),
+		"response": map[string]interface{}{
+			"attestationObject": base64.RawURLEncoding.EncodeToString(req.Response.Response.AttestationObject),
+			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(req.Response.Response.ClientDataJSON),
+		},
+		"type": req.Response.Type,
+	}
+
+	c.Logger().Infof("RegisterFinish: Credential data converted to proper format")
+
+	// Convert to JSON bytes for parsing
+	responseBytes, err := json.Marshal(webauthnResponse)
 	if err != nil {
-		c.Logger().Errorf("RegisterFinish: Failed to parse WebAuthn response from HTTP request: %v", err)
+		c.Logger().Errorf("RegisterFinish: Failed to marshal converted response: %v", err)
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Failed to process WebAuthn response",
+		})
+	}
+
+	c.Logger().Debugf("RegisterFinish: Converted response bytes: %s", string(responseBytes))
+
+	// Parse the WebAuthn response
+	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(responseBytes)
+	if err != nil {
+		c.Logger().Errorf("RegisterFinish: Failed to parse converted WebAuthn response: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Failed to parse WebAuthn response",
 		})
 	}
 
-	c.Logger().Infof("RegisterFinish: WebAuthn response parsed successfully from HTTP request")
+	c.Logger().Infof("RegisterFinish: WebAuthn response parsed successfully")
 
 	// Complete registration with WebAuthn service
 	err = h.webauthn.FinishRegistration(req.ChallengeID, parsedResponse)
@@ -239,4 +279,27 @@ func (h *WebAuthnHandlers) RegisterRoutes(e *echo.Echo) {
 	webauthn.POST("/login/start", h.LoginStart)
 	webauthn.POST("/login/finish", h.LoginFinish)
 	webauthn.POST("/login/discoverable", h.DiscoverableLoginStart)
+
+	// Debug routes (for development only)
+	webauthn.GET("/debug/credentials/:email", h.DebugCredentials)
+}
+
+// DebugCredentials shows stored credentials for a user (development only)
+func (h *WebAuthnHandlers) DebugCredentials(c echo.Context) error {
+	email := c.Param("email")
+	if email == "" {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Email parameter is required",
+		})
+	}
+
+	c.Logger().Infof("DebugCredentials: Retrieving credentials for user: %s", email)
+
+	// This would need to be implemented in the WebAuthn service interface
+	// For now, return a placeholder response
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"email":   email,
+		"message": "Debug endpoint - check server logs for stored credential details",
+		"note":    "This endpoint is for development only",
+	})
 }

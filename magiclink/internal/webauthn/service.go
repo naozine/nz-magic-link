@@ -197,6 +197,16 @@ func (s *Service) FinishRegistration(challengeID string, response *protocol.Pars
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 
+	// Log the saved credential details
+	fmt.Printf("✓ Passkey credential saved successfully:\n")
+	fmt.Printf("  - Credential ID: %s\n", storedCred.ID)
+	fmt.Printf("  - User ID: %s\n", storedCred.UserID)
+	fmt.Printf("  - Sign Count: %d\n", storedCred.SignCount)
+	fmt.Printf("  - AAGUID: %s\n", storedCred.AAGUID)
+	fmt.Printf("  - Attestation Type: %s\n", storedCred.AttestationType)
+	fmt.Printf("  - Transports: %v\n", storedCred.Transports)
+	fmt.Printf("  - Created At: %s\n", storedCred.CreatedAt.Format("2006-01-02 15:04:05"))
+
 	// Clean up challenge
 	if err := s.storage.DeletePasskeyChallenge(challengeID); err != nil {
 		// Log but don't fail the operation
