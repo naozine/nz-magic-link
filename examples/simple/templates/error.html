@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>エラーが発生しました</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans JP", sans-serif; margin: 2rem; color: #222; }
+    .container { max-width: 720px; margin: 0 auto; }
+    .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.25rem; background: #fff; }
+    .title { margin: 0 0 .5rem; font-size: 1.5rem; }
+    .muted { color: #6b7280; }
+    .kv { margin: .5rem 0; }
+    .kv code { background: #f3f4f6; padding: .15rem .35rem; border-radius: 4px; }
+    .actions { margin-top: 1rem; }
+    a.button { display: inline-block; background: #2563eb; color: #fff; padding: .5rem .9rem; border-radius: 6px; text-decoration: none; }
+    a.button.secondary { background: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">サインインに失敗しました</h1>
+    <p class="muted">リンクの有効期限切れや、既に使用済みの可能性があります。もう一度お試しください。</p>
+
+    <div class="card">
+      <div class="kv">エラーコード: <code>{{.error}}</code></div>
+      <div class="kv">説明: <code>{{.error_description}}</code></div>
+      <div class="kv">HTTPコード: <code>{{.code}}</code></div>
+    </div>
+
+    <div class="actions">
+      <a class="button" href="/login">ログインに戻る</a>
+      <a class="button secondary" href="/">トップへ</a>
+    </div>
+  </div>
+</body>
+</html>

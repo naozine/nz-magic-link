@@ -36,10 +36,14 @@ type SessionData struct {
 
 // Key prefixes for different data types
 const (
-	tokenPrefix        = "token:"
-	sessionPrefix      = "session:"
-	emailIndexPrefix   = "email_idx:"
-	tokenCreatedPrefix = "token_created:"
+	tokenPrefix            = "token:"
+	sessionPrefix          = "session:"
+	emailIndexPrefix       = "email_idx:"
+	tokenCreatedPrefix     = "token_created:"
+	passkeyCredPrefix      = "passkey_cred:"
+	passkeyChallengePrefix = "passkey_challenge:"
+	passkeyUserPrefix      = "passkey_user_idx:"
+	passkeyChallengeExpiry = "passkey_challenge_exp:"
 )
 
 // NewLevelDB creates a new LevelDB database instance.
@@ -338,12 +342,269 @@ func (l *LevelDB) CleanupExpiredSessions() error {
 	return nil
 }
 
+// SavePasskeyCredential saves a passkey credential to the database.
+func (l *LevelDB) SavePasskeyCredential(cred *PasskeyCredential) error {
+	data, err := json.Marshal(cred)
+	if err != nil {
+		return fmt.Errorf("failed to marshal passkey credential: %w", err)
+	}
+
+	batch := new(leveldb.Batch)
+
+	// Store main credential data
+	credKey := passkeyCredPrefix + cred.ID
+	batch.Put([]byte(credKey), data)
+
+	// Store user index
+	userIndexKey := passkeyUserPrefix + cred.UserID + ":" + cred.ID
+	batch.Put([]byte(userIndexKey), []byte(cred.ID))
+
+	if err := l.db.Write(batch, nil); err != nil {
+		return fmt.Errorf("failed to save passkey credential: %w", err)
+	}
+
+	return nil
+}
+
+// GetPasskeyCredentialByID retrieves a passkey credential by ID.
+func (l *LevelDB) GetPasskeyCredentialByID(credentialID string) (*PasskeyCredential, error) {
+	credKey := passkeyCredPrefix + credentialID
+	data, err := l.db.Get([]byte(credKey), nil)
+	if err == leveldb.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get passkey credential: %w", err)
+	}
+
+	var cred PasskeyCredential
+	if err := json.Unmarshal(data, &cred); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal passkey credential: %w", err)
+	}
+
+	return &cred, nil
+}
+
+// GetPasskeyCredentialsByUserID retrieves all passkey credentials for a user.
+func (l *LevelDB) GetPasskeyCredentialsByUserID(userID string) ([]*PasskeyCredential, error) {
+	prefix := passkeyUserPrefix + userID + ":"
+	iter := l.db.NewIterator(util.BytesPrefix([]byte(prefix)), nil)
+	defer iter.Release()
+
+	var credentials []*PasskeyCredential
+	for iter.Next() {
+		credentialID := string(iter.Value())
+		cred, err := l.GetPasskeyCredentialByID(credentialID)
+		if err != nil {
+			continue // Skip malformed credentials
+		}
+		if cred != nil {
+			credentials = append(credentials, cred)
+		}
+	}
+
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("failed to iterate passkey credentials: %w", err)
+	}
+
+	return credentials, nil
+}
+
+// DeletePasskeyCredential deletes a passkey credential.
+func (l *LevelDB) DeletePasskeyCredential(credentialID string) error {
+	// Get credential first to get user ID
+	cred, err := l.GetPasskeyCredentialByID(credentialID)
+	if err != nil {
+		return err
+	}
+	if cred == nil {
+		return nil // Already deleted
+	}
+
+	batch := new(leveldb.Batch)
+
+	// Delete main credential
+	credKey := passkeyCredPrefix + credentialID
+	batch.Delete([]byte(credKey))
+
+	// Delete user index
+	userIndexKey := passkeyUserPrefix + cred.UserID + ":" + credentialID
+	batch.Delete([]byte(userIndexKey))
+
+	if err := l.db.Write(batch, nil); err != nil {
+		return fmt.Errorf("failed to delete passkey credential: %w", err)
+	}
+
+	return nil
+}
+
+// UpdatePasskeyCredentialSignCount updates the sign count for a passkey credential.
+func (l *LevelDB) UpdatePasskeyCredentialSignCount(credentialID string, signCount uint32) error {
+	cred, err := l.GetPasskeyCredentialByID(credentialID)
+	if err != nil {
+		return err
+	}
+	if cred == nil {
+		return fmt.Errorf("credential not found")
+	}
+
+	cred.SignCount = signCount
+	cred.UpdatedAt = time.Now()
+
+	data, err := json.Marshal(cred)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated credential: %w", err)
+	}
+
+	credKey := passkeyCredPrefix + credentialID
+	if err := l.db.Put([]byte(credKey), data, nil); err != nil {
+		return fmt.Errorf("failed to update passkey credential sign count: %w", err)
+	}
+
+	return nil
+}
+
+// SavePasskeyChallenge saves a passkey challenge to the database.
+func (l *LevelDB) SavePasskeyChallenge(challenge *PasskeyChallenge) error {
+	data, err := json.Marshal(challenge)
+	if err != nil {
+		return fmt.Errorf("failed to marshal passkey challenge: %w", err)
+	}
+
+	batch := new(leveldb.Batch)
+
+	// Store main challenge data
+	challengeKey := passkeyChallengePrefix + challenge.ID
+	batch.Put([]byte(challengeKey), data)
+
+	// Store expiry index for cleanup
+	expiryKey := passkeyChallengeExpiry + strconv.FormatInt(challenge.ExpiresAt.Unix(), 10) + ":" + challenge.ID
+	batch.Put([]byte(expiryKey), []byte(challenge.ID))
+
+	if err := l.db.Write(batch, nil); err != nil {
+		return fmt.Errorf("failed to save passkey challenge: %w", err)
+	}
+
+	return nil
+}
+
+// GetPasskeyChallenge retrieves a passkey challenge by ID.
+func (l *LevelDB) GetPasskeyChallenge(challengeID string) (*PasskeyChallenge, error) {
+	challengeKey := passkeyChallengePrefix + challengeID
+	data, err := l.db.Get([]byte(challengeKey), nil)
+	if err == leveldb.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get passkey challenge: %w", err)
+	}
+
+	var challenge PasskeyChallenge
+	if err := json.Unmarshal(data, &challenge); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal passkey challenge: %w", err)
+	}
+
+	return &challenge, nil
+}
+
+// DeletePasskeyChallenge deletes a passkey challenge.
+func (l *LevelDB) DeletePasskeyChallenge(challengeID string) error {
+	// Get challenge first to get expiry time for index cleanup
+	challenge, err := l.GetPasskeyChallenge(challengeID)
+	if err != nil {
+		return err
+	}
+	if challenge == nil {
+		return nil // Already deleted
+	}
+
+	batch := new(leveldb.Batch)
+
+	// Delete main challenge
+	challengeKey := passkeyChallengePrefix + challengeID
+	batch.Delete([]byte(challengeKey))
+
+	// Delete expiry index
+	expiryKey := passkeyChallengeExpiry + strconv.FormatInt(challenge.ExpiresAt.Unix(), 10) + ":" + challengeID
+	batch.Delete([]byte(expiryKey))
+
+	if err := l.db.Write(batch, nil); err != nil {
+		return fmt.Errorf("failed to delete passkey challenge: %w", err)
+	}
+
+	return nil
+}
+
+// CleanupExpiredPasskeyChallenges removes expired passkey challenges.
+func (l *LevelDB) CleanupExpiredPasskeyChallenges() error {
+	now := time.Now()
+	batch := new(leveldb.Batch)
+
+	// Find expired challenges using the expiry time index
+	iter := l.db.NewIterator(util.BytesPrefix([]byte(passkeyChallengeExpiry)), nil)
+	defer iter.Release()
+
+	for iter.Next() {
+		key := string(iter.Key())
+		parts := strings.Split(key, ":")
+		if len(parts) >= 2 {
+			if expiryTime, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+				if now.Unix() > expiryTime {
+					challengeID := string(iter.Value())
+
+					// Delete main challenge
+					challengeKey := passkeyChallengePrefix + challengeID
+					batch.Delete([]byte(challengeKey))
+
+					// Delete expiry index entry
+					batch.Delete(iter.Key())
+				}
+			}
+		}
+	}
+
+	if err := iter.Error(); err != nil {
+		return fmt.Errorf("failed to iterate expired passkey challenges: %w", err)
+	}
+
+	if err := l.db.Write(batch, nil); err != nil {
+		return fmt.Errorf("failed to cleanup expired passkey challenges: %w", err)
+	}
+
+	return nil
+}
+
 // Ping checks if the database is accessible.
 func (l *LevelDB) Ping() error {
 	// Try a simple operation to check if database is accessible
 	_, err := l.db.Get([]byte("__ping__"), nil)
 	if err != nil && err != leveldb.ErrNotFound {
 		return fmt.Errorf("database ping failed: %w", err)
+	}
+	return nil
+}
+
+// UpdateSessionExpiry updates the expiry time of a session by its hash.
+func (l *LevelDB) UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error {
+	sessionKey := sessionPrefix + sessionHash
+	data, err := l.db.Get([]byte(sessionKey), nil)
+	if err == leveldb.ErrNotFound {
+		return nil // treat as no-op if session missing
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get session for update: %w", err)
+	}
+	var sessionData SessionData
+	if err := json.Unmarshal(data, &sessionData); err != nil {
+		return fmt.Errorf("failed to unmarshal session data: %w", err)
+	}
+	sessionData.ExpiresAt = newExpiresAt
+	updated, err := json.Marshal(sessionData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated session data: %w", err)
+	}
+	if err := l.db.Put([]byte(sessionKey), updated, nil); err != nil {
+		return fmt.Errorf("failed to update session expiry: %w", err)
 	}
 	return nil
 }

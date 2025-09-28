@@ -16,6 +16,7 @@ import (
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
 	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
+	"github.com/naozine/nz-magic-link/magiclink/internal/webauthn"
 )
 
 // BaseTemplateData is exported from the email package for external use.
@@ -66,6 +67,7 @@ type Config struct {
 	VerifyURL         string
 	RedirectURL       string
 	LogoutRedirectURL string
+	ErrorRedirectURL  string
 	EmailTemplate     string
 	EmailSubject      string
 	ServerAddr        string
@@ -73,6 +75,17 @@ type Config struct {
 	// Rate limiting
 	MaxLoginAttempts int
 	RateLimitWindow  time.Duration
+
+	// WebAuthn/Passkey configuration
+	WebAuthnRPID               string        `json:"webauthn_rp_id"`
+	WebAuthnRPName             string        `json:"webauthn_rp_name"`
+	WebAuthnAllowedOrigins     []string      `json:"webauthn_allowed_origins"`
+	WebAuthnChallengeTTL       time.Duration `json:"webauthn_challenge_ttl"`
+	WebAuthnTimeout            time.Duration `json:"webauthn_timeout"`
+	WebAuthnMetadataValidation bool          `json:"webauthn_metadata_validation"`
+	WebAuthnUserVerification   string        `json:"webauthn_user_verification"`
+	WebAuthnRequireResidentKey bool          `json:"webauthn_require_resident_key"`
+	WebAuthnEnabled            bool          `json:"webauthn_enabled"`
 }
 
 // DefaultConfig returns a Config with sensible default values.
@@ -97,10 +110,22 @@ func DefaultConfig() Config {
 		VerifyURL:              "/auth/verify",
 		RedirectURL:            "/",
 		LogoutRedirectURL:      "/",
+		ErrorRedirectURL:       "",
 		EmailSubject:           "Your Magic Link for Authentication",
 		ServerAddr:             "http://localhost:8080",
 		MaxLoginAttempts:       5,
 		RateLimitWindow:        15 * time.Minute,
+
+		// WebAuthn defaults
+		WebAuthnRPID:               "localhost",
+		WebAuthnRPName:             "nz-magic-link",
+		WebAuthnAllowedOrigins:     []string{"http://localhost:8080"},
+		WebAuthnChallengeTTL:       5 * time.Minute,
+		WebAuthnTimeout:            60 * time.Second,
+		WebAuthnMetadataValidation: false,
+		WebAuthnUserVerification:   "preferred",
+		WebAuthnRequireResidentKey: true,
+		WebAuthnEnabled:            false, // Disabled by default
 	}
 }
 
@@ -113,7 +138,8 @@ type MagicLink struct {
 	TokenManager    *token.Manager
 	EmailSender     *email.Sender
 	SessionManager  *session.Manager
-	DevBypassEmails map[string]bool // Map of email addresses that should bypass email sending
+	WebAuthnService *webauthn.Service // WebAuthn service for passkey authentication
+	DevBypassEmails map[string]bool   // Map of email addresses that should bypass email sending
 }
 
 // New creates a new MagicLink instance with the provided configuration.
@@ -170,6 +196,27 @@ func New(config Config) (*MagicLink, error) {
 	}
 	sessionManager := session.New(database, sessionConfig)
 
+	// Initialize WebAuthn service if enabled
+	var webauthnService *webauthn.Service
+	if config.WebAuthnEnabled {
+		webauthnConfig := webauthn.Config{
+			RPID:               config.WebAuthnRPID,
+			RPName:             config.WebAuthnRPName,
+			AllowedOrigins:     config.WebAuthnAllowedOrigins,
+			ChallengeTTL:       config.WebAuthnChallengeTTL,
+			Timeout:            config.WebAuthnTimeout,
+			MetadataValidation: config.WebAuthnMetadataValidation,
+			UserVerification:   config.WebAuthnUserVerification,
+			RequireResidentKey: config.WebAuthnRequireResidentKey,
+		}
+
+		var err error
+		webauthnService, err = webauthn.NewService(webauthnConfig, database)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize WebAuthn service: %w", err)
+		}
+	}
+
 	// Create the MagicLink instance
 	ml := &MagicLink{
 		Config:          config,
@@ -177,6 +224,7 @@ func New(config Config) (*MagicLink, error) {
 		TokenManager:    tokenManager,
 		EmailSender:     emailSender,
 		SessionManager:  sessionManager,
+		WebAuthnService: webauthnService,
 		DevBypassEmails: make(map[string]bool),
 	}
 
@@ -209,6 +257,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.TokenManager,
 		m.SessionManager,
 		m.Config.RedirectURL,
+		m.Config.ErrorRedirectURL,
 	))
 
 	// Register the logout handler
@@ -216,6 +265,12 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.SessionManager,
 		m.Config.LogoutRedirectURL,
 	))
+
+	// Register WebAuthn handlers if enabled
+	if m.Config.WebAuthnEnabled && m.WebAuthnService != nil {
+		webauthnHandlers := handlers.NewWebAuthnHandlers(m.WebAuthnService, *m.SessionManager)
+		webauthnHandlers.RegisterRoutes(e)
+	}
 }
 
 // AuthMiddleware returns a middleware that checks if the user is authenticated.

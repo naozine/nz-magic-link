@@ -54,6 +54,35 @@
         .btn-secondary:hover {
             background: #0b7dda;
         }
+        .btn-passkey {
+            background: #FF9800;
+        }
+        .btn-passkey:hover {
+            background: #F57C00;
+        }
+        .btn-passkey:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .divider {
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+        }
+        .divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #ddd;
+        }
+        .divider span {
+            background: white;
+            padding: 0 15px;
+            color: #666;
+        }
         .alert {
             padding: 15px;
             margin-bottom: 20px;
@@ -76,27 +105,91 @@
     <h1>Login with Magic Link</h1>
     
     <div class="container">
-        <p>Enter your email address below to receive a magic link for authentication. No password required!</p>
-        
-        <div id="message"></div>
-        
-        <form id="loginForm" action="/auth/login" method="post">
-            <div class="form-group">
-                <label for="email">Email Address:</label>
-                <input type="email" id="email" name="email" required>
+        <!-- Passkey Login Section -->
+        <div id="passkeySection" style="display: none;">
+            <p><strong>🔐 パスキーでログイン</strong></p>
+            <p>生体認証やセキュリティキーを使って、すばやく安全にログインできます。</p>
+
+            <button id="passkeyLoginBtn" class="btn btn-passkey" style="width: 100%; margin-bottom: 10px;">
+                パスキーでログイン
+            </button>
+            <button id="discoverableLoginBtn" class="btn btn-passkey" style="width: 100%;">
+                ワンタップログイン
+            </button>
+
+            <div class="divider">
+                <span>または</span>
             </div>
-            <button type="submit" class="btn">Send Magic Link</button>
-            <a href="/" class="btn btn-secondary">Back to Home</a>
-        </form>
+        </div>
+
+        <!-- Traditional Magic Link Login -->
+        <div id="magicLinkSection">
+            <p>メールアドレスを入力して、認証用のマジックリンクを受け取ってください。パスワードは不要です！</p>
+
+            <div id="message"></div>
+
+            <form id="loginForm" action="/auth/login" method="post">
+                <div class="form-group">
+                    <label for="email">メールアドレス:</label>
+                    <input type="email" id="email" name="email" required>
+                </div>
+                <button type="submit" class="btn" style="width: 100%;">マジックリンクを送信</button>
+
+                <div class="divider">
+                    <span>または</span>
+                </div>
+
+                <button type="button" id="registerPasskeyBtn" class="btn btn-passkey" style="width: 100%;">
+                    このデバイスでパスキーを作成
+                </button>
+            </form>
+        </div>
+
+        <div style="margin-top: 20px; text-align: center;">
+            <a href="/" class="btn btn-secondary">ホームに戻る</a>
+        </div>
     </div>
 
     <script>
+        // WebAuthn support detection
+        const isWebAuthnSupported = () => {
+            return !!(navigator.credentials && navigator.credentials.create);
+        };
+
+        // Initialize page based on WebAuthn support
+        document.addEventListener('DOMContentLoaded', function() {
+            const passkeySection = document.getElementById('passkeySection');
+            const passkeyLoginBtn = document.getElementById('passkeyLoginBtn');
+            const discoverableLoginBtn = document.getElementById('discoverableLoginBtn');
+            const registerPasskeyBtn = document.getElementById('registerPasskeyBtn');
+
+            if (isWebAuthnSupported()) {
+                passkeySection.style.display = 'block';
+
+                // Check for conditional mediation support
+                if (PublicKeyCredential.isConditionalMediationAvailable) {
+                    PublicKeyCredential.isConditionalMediationAvailable().then(available => {
+                        if (!available) {
+                            discoverableLoginBtn.disabled = true;
+                            discoverableLoginBtn.textContent = 'ワンタップログイン (非対応)';
+                        }
+                    });
+                } else {
+                    discoverableLoginBtn.disabled = true;
+                    discoverableLoginBtn.textContent = 'ワンタップログイン (非対応)';
+                }
+            } else {
+                registerPasskeyBtn.style.display = 'none';
+            }
+        });
+
+        // Magic Link login form
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            
+
             const email = document.getElementById('email').value;
             const messageDiv = document.getElementById('message');
-            
+
             fetch('/auth/login', {
                 method: 'POST',
                 headers: {
@@ -108,17 +201,16 @@
             .then(data => {
                 if (data.message) {
                     let messageHtml = `<div class="alert alert-success">${data.message}</div>`;
-                    
-                    // If there's a magic link in the response, display it
+
                     if (data.magic_link) {
                         messageHtml += `
                             <div class="alert alert-success" style="margin-top: 10px;">
-                                <p>Magic Link for Development:</p>
+                                <p>開発用マジックリンク:</p>
                                 <a href="${data.magic_link}" class="magic-link" style="word-break: break-all;">${data.magic_link}</a>
                             </div>
                         `;
                     }
-                    
+
                     messageDiv.innerHTML = messageHtml;
                     document.getElementById('email').value = '';
                 } else if (data.error) {
@@ -126,10 +218,219 @@
                 }
             })
             .catch(error => {
-                messageDiv.innerHTML = `<div class="alert alert-danger">An error occurred. Please try again.</div>`;
+                messageDiv.innerHTML = `<div class="alert alert-danger">エラーが発生しました。再度お試しください。</div>`;
                 console.error('Error:', error);
             });
         });
+
+        // Helper functions
+        const showMessage = (message, isError = false) => {
+            const messageDiv = document.getElementById('message');
+            const alertClass = isError ? 'alert-danger' : 'alert-success';
+            messageDiv.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+        };
+
+        // Passkey registration
+        document.getElementById('registerPasskeyBtn').addEventListener('click', async function() {
+            const email = document.getElementById('email').value;
+            if (!email) {
+                showMessage('メールアドレスを入力してください。', true);
+                return;
+            }
+
+            try {
+                showMessage('パスキーを作成中...');
+
+                // Start registration
+                const startResponse = await fetch('/webauthn/register/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email })
+                });
+
+                if (!startResponse.ok) {
+                    const error = await startResponse.json();
+                    throw new Error(error.message || '登録の開始に失敗しました');
+                }
+
+                const startData = await startResponse.json();
+                console.log('Server response:', JSON.stringify(startData, null, 2));
+
+                // Extract the actual PublicKeyCredentialCreationOptions from the Response field
+                const publicKeyCredentialCreationOptions = startData.options.Response || startData.options.publicKey || startData.options;
+                console.log('Options structure:', JSON.stringify(publicKeyCredentialCreationOptions, null, 2));
+
+                // Check for required fields before conversion
+                if (!publicKeyCredentialCreationOptions.challenge) {
+                    throw new Error('Challenge field is missing from server response');
+                }
+                if (!publicKeyCredentialCreationOptions.user || !publicKeyCredentialCreationOptions.user.id) {
+                    throw new Error('User.id field is missing from server response');
+                }
+
+                // Convert base64url strings to ArrayBuffers
+                publicKeyCredentialCreationOptions.challenge = base64urlToArrayBuffer(publicKeyCredentialCreationOptions.challenge);
+                publicKeyCredentialCreationOptions.user.id = base64urlToArrayBuffer(publicKeyCredentialCreationOptions.user.id);
+
+                // Create credential
+                const credential = await navigator.credentials.create({
+                    publicKey: publicKeyCredentialCreationOptions
+                });
+
+                // Finish registration
+                const finishResponse = await fetch('/webauthn/register/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        challenge_id: startData.challenge_id,
+                        response: {
+                            id: credential.id,
+                            rawId: Array.from(new Uint8Array(credential.rawId)),
+                            response: {
+                                attestationObject: Array.from(new Uint8Array(credential.response.attestationObject)),
+                                clientDataJSON: Array.from(new Uint8Array(credential.response.clientDataJSON))
+                            },
+                            type: credential.type
+                        }
+                    })
+                });
+
+                if (finishResponse.ok) {
+                    showMessage('パスキーの作成が完了しました！次回からパスキーでログインできます。');
+                } else {
+                    const error = await finishResponse.json();
+                    throw new Error(error.message || '登録の完了に失敗しました');
+                }
+
+            } catch (error) {
+                console.error('Passkey registration error:', error);
+                showMessage('パスキーの作成に失敗しました: ' + error.message, true);
+            }
+        });
+
+        // Passkey login with email
+        document.getElementById('passkeyLoginBtn').addEventListener('click', async function() {
+            const email = prompt('メールアドレスを入力してください:');
+            if (!email) return;
+
+            try {
+                await passkeyLogin(email);
+            } catch (error) {
+                console.error('Passkey login error:', error);
+                showMessage('パスキーでのログインに失敗しました: ' + error.message, true);
+            }
+        });
+
+        // Discoverable login
+        document.getElementById('discoverableLoginBtn').addEventListener('click', async function() {
+            try {
+                await passkeyLogin();
+            } catch (error) {
+                console.error('Discoverable login error:', error);
+                showMessage('ワンタップログインに失敗しました: ' + error.message, true);
+            }
+        });
+
+        // Common passkey login function
+        async function passkeyLogin(email = null) {
+            showMessage('パスキーで認証中...');
+
+            // Start login
+            const startResponse = await fetch(email ? '/webauthn/login/start' : '/webauthn/login/discoverable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: email ? JSON.stringify({ email: email }) : '{}'
+            });
+
+            if (!startResponse.ok) {
+                const error = await startResponse.json();
+                throw new Error(error.message || 'ログインの開始に失敗しました');
+            }
+
+            const startData = await startResponse.json();
+            console.log('Login start data:', JSON.stringify(startData, null, 2));
+
+            // Convert base64 strings to ArrayBuffers for WebAuthn
+            const publicKeyOptions = {
+                ...startData.options,
+                challenge: base64urlToArrayBuffer(startData.options.challenge),
+                allowCredentials: startData.options.allowCredentials.map(cred => ({
+                    ...cred,
+                    id: base64urlToArrayBuffer(cred.id)
+                }))
+            };
+
+            console.log('Prepared options for WebAuthn:', publicKeyOptions);
+
+            // Get credential
+            const credential = await navigator.credentials.get({
+                publicKey: publicKeyOptions
+            });
+
+            // Finish login
+            const finishResponse = await fetch('/webauthn/login/finish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    challenge_id: startData.challenge_id,
+                    response: {
+                        id: credential.id,
+                        rawId: Array.from(new Uint8Array(credential.rawId)),
+                        response: {
+                            authenticatorData: Array.from(new Uint8Array(credential.response.authenticatorData)),
+                            clientDataJSON: Array.from(new Uint8Array(credential.response.clientDataJSON)),
+                            signature: Array.from(new Uint8Array(credential.response.signature)),
+                            userHandle: credential.response.userHandle ? Array.from(new Uint8Array(credential.response.userHandle)) : null
+                        },
+                        type: credential.type
+                    }
+                })
+            });
+
+            const finishData = await finishResponse.json();
+            if (finishData.success) {
+                showMessage('ログインに成功しました！リダイレクト中...');
+                if (finishData.redirect_url) {
+                    window.location.href = finishData.redirect_url;
+                } else {
+                    window.location.href = '/dashboard';
+                }
+            } else {
+                throw new Error(finishData.message || 'ログインに失敗しました');
+            }
+        }
+
+        // Base64URL utility functions for WebAuthn
+        function base64urlToArrayBuffer(base64url) {
+            if (!base64url || typeof base64url !== 'string') {
+                console.error('Invalid base64url input:', base64url);
+                throw new Error('Invalid base64url input: ' + base64url);
+            }
+
+            // Convert base64url to base64
+            const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+            // Add padding if needed
+            const paddedBase64 = base64 + '='.repeat((4 - base64.length % 4) % 4);
+            // Decode to binary string
+            const binaryString = atob(paddedBase64);
+            // Convert to ArrayBuffer
+            const buffer = new ArrayBuffer(binaryString.length);
+            const view = new Uint8Array(buffer);
+            for (let i = 0; i < binaryString.length; i++) {
+                view[i] = binaryString.charCodeAt(i);
+            }
+            return buffer;
+        }
+
+        function arrayBufferToBase64url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binaryString = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binaryString += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binaryString);
+            return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
     </script>
 </body>
 </html>

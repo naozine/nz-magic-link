@@ -5,6 +5,30 @@ import (
 	"time"
 )
 
+// PasskeyCredential represents a WebAuthn credential stored in the database
+type PasskeyCredential struct {
+	ID              string    `json:"id"`               // base64url(credentialID) — 主キー
+	UserID          string    `json:"user_id"`          // 既存ユーザー識別子（email）
+	PublicKey       []byte    `json:"public_key"`       // COSE公開鍵のraw bytes
+	SignCount       uint32    `json:"sign_count"`       // リプレイ防止用カウンター
+	AAGUID          string    `json:"aaguid,omitempty"` // 認証器AAGUID（任意）
+	AttestationType string    `json:"attestation_type"` // attestation形式
+	Transports      []string  `json:"transports"`       // サポートされる転送方式
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// PasskeyChallenge represents a short-lived challenge for WebAuthn operations
+type PasskeyChallenge struct {
+	ID                     string    `json:"id"`                       // ランダム UUID
+	UserID                 string    `json:"user_id,omitempty"`        // ユーザーID（登録時任意）
+	Type                   string    `json:"type"`                     // "attestation" or "assertion"
+	Challenge              string    `json:"challenge"`                // ランダムバイト（base64url）
+	ExpiresAt              time.Time `json:"expires_at"`               // 失効時刻
+	SessionDataJSON        string    `json:"session_data_json"`        // webauthn.SessionDataのJSON化
+	RequestOptionsSnapshot string    `json:"request_options_snapshot"` // リクエストオプションのスナップショット
+}
+
 // Database defines the interface for all database implementations.
 // This allows switching between different storage backends (SQLite, LevelDB, etc.)
 type Database interface {
@@ -24,8 +48,22 @@ type Database interface {
 	// Session operations
 	SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error
 	GetSessionByHash(sessionHash string) (sessionID, userID string, expiresAt time.Time, err error)
+	UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error
 	DeleteSession(sessionHash string) error
 	CleanupExpiredSessions() error
+
+	// Passkey credential operations
+	SavePasskeyCredential(cred *PasskeyCredential) error
+	GetPasskeyCredentialByID(credentialID string) (*PasskeyCredential, error)
+	GetPasskeyCredentialsByUserID(userID string) ([]*PasskeyCredential, error)
+	DeletePasskeyCredential(credentialID string) error
+	UpdatePasskeyCredentialSignCount(credentialID string, signCount uint32) error
+
+	// Passkey challenge operations
+	SavePasskeyChallenge(challenge *PasskeyChallenge) error
+	GetPasskeyChallenge(challengeID string) (*PasskeyChallenge, error)
+	DeletePasskeyChallenge(challengeID string) error
+	CleanupExpiredPasskeyChallenges() error
 
 	// Health check
 	Ping() error

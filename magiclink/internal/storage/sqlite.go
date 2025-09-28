@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -83,12 +84,49 @@ func (s *SQLiteDB) Init() error {
 		return fmt.Errorf("failed to create sessions table: %w", err)
 	}
 
+	// Create passkey_credentials table
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS passkey_credentials (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			public_key BLOB NOT NULL,
+			sign_count INTEGER NOT NULL DEFAULT 0,
+			aaguid TEXT,
+			attestation_type TEXT NOT NULL,
+			transports TEXT NOT NULL, -- JSON array
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create passkey_credentials table: %w", err)
+	}
+
+	// Create passkey_challenges table
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS passkey_challenges (
+			id TEXT PRIMARY KEY,
+			user_id TEXT,
+			type TEXT NOT NULL,
+			challenge TEXT NOT NULL,
+			expires_at TIMESTAMP NOT NULL,
+			session_data_json TEXT NOT NULL,
+			request_options_snapshot TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create passkey_challenges table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_token_hash ON tokens(token_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_session_hash ON sessions(session_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_token_expires ON tokens(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_session_expires ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user_id ON passkey_credentials(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_passkey_challenges_expires ON passkey_challenges(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_passkey_challenges_type ON passkey_challenges(type)`,
 	}
 
 	for _, index := range indexes {
@@ -221,7 +259,175 @@ func (s *SQLiteDB) CleanupExpiredSessions() error {
 	return nil
 }
 
+// SavePasskeyCredential saves a passkey credential to the database.
+func (s *SQLiteDB) SavePasskeyCredential(cred *PasskeyCredential) error {
+	transportsJSON, err := json.Marshal(cred.Transports)
+	if err != nil {
+		return fmt.Errorf("failed to marshal transports: %w", err)
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO passkey_credentials
+		(id, user_id, public_key, sign_count, aaguid, attestation_type, transports, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount, cred.AAGUID,
+		cred.AttestationType, string(transportsJSON), cred.CreatedAt, cred.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save passkey credential: %w", err)
+	}
+	return nil
+}
+
+// GetPasskeyCredentialByID retrieves a passkey credential by ID.
+func (s *SQLiteDB) GetPasskeyCredentialByID(credentialID string) (*PasskeyCredential, error) {
+	var cred PasskeyCredential
+	var transportsJSON string
+
+	err := s.db.QueryRow(`
+		SELECT id, user_id, public_key, sign_count, aaguid, attestation_type, transports, created_at, updated_at
+		FROM passkey_credentials WHERE id = ?`,
+		credentialID,
+	).Scan(&cred.ID, &cred.UserID, &cred.PublicKey, &cred.SignCount, &cred.AAGUID,
+		&cred.AttestationType, &transportsJSON, &cred.CreatedAt, &cred.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get passkey credential: %w", err)
+	}
+
+	if err := json.Unmarshal([]byte(transportsJSON), &cred.Transports); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal transports: %w", err)
+	}
+
+	return &cred, nil
+}
+
+// GetPasskeyCredentialsByUserID retrieves all passkey credentials for a user.
+func (s *SQLiteDB) GetPasskeyCredentialsByUserID(userID string) ([]*PasskeyCredential, error) {
+	rows, err := s.db.Query(`
+		SELECT id, user_id, public_key, sign_count, aaguid, attestation_type, transports, created_at, updated_at
+		FROM passkey_credentials WHERE user_id = ? ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query passkey credentials: %w", err)
+	}
+	defer rows.Close()
+
+	var credentials []*PasskeyCredential
+	for rows.Next() {
+		var cred PasskeyCredential
+		var transportsJSON string
+
+		err := rows.Scan(&cred.ID, &cred.UserID, &cred.PublicKey, &cred.SignCount, &cred.AAGUID,
+			&cred.AttestationType, &transportsJSON, &cred.CreatedAt, &cred.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan passkey credential: %w", err)
+		}
+
+		if err := json.Unmarshal([]byte(transportsJSON), &cred.Transports); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal transports: %w", err)
+		}
+
+		credentials = append(credentials, &cred)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate passkey credentials: %w", err)
+	}
+
+	return credentials, nil
+}
+
+// DeletePasskeyCredential deletes a passkey credential.
+func (s *SQLiteDB) DeletePasskeyCredential(credentialID string) error {
+	_, err := s.db.Exec(`DELETE FROM passkey_credentials WHERE id = ?`, credentialID)
+	if err != nil {
+		return fmt.Errorf("failed to delete passkey credential: %w", err)
+	}
+	return nil
+}
+
+// UpdatePasskeyCredentialSignCount updates the sign count for a passkey credential.
+func (s *SQLiteDB) UpdatePasskeyCredentialSignCount(credentialID string, signCount uint32) error {
+	_, err := s.db.Exec(`
+		UPDATE passkey_credentials SET sign_count = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`,
+		signCount, credentialID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update passkey credential sign count: %w", err)
+	}
+	return nil
+}
+
+// SavePasskeyChallenge saves a passkey challenge to the database.
+func (s *SQLiteDB) SavePasskeyChallenge(challenge *PasskeyChallenge) error {
+	_, err := s.db.Exec(`
+		INSERT INTO passkey_challenges
+		(id, user_id, type, challenge, expires_at, session_data_json, request_options_snapshot)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		challenge.ID, challenge.UserID, challenge.Type, challenge.Challenge,
+		challenge.ExpiresAt, challenge.SessionDataJSON, challenge.RequestOptionsSnapshot,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save passkey challenge: %w", err)
+	}
+	return nil
+}
+
+// GetPasskeyChallenge retrieves a passkey challenge by ID.
+func (s *SQLiteDB) GetPasskeyChallenge(challengeID string) (*PasskeyChallenge, error) {
+	var challenge PasskeyChallenge
+
+	err := s.db.QueryRow(`
+		SELECT id, user_id, type, challenge, expires_at, session_data_json, request_options_snapshot
+		FROM passkey_challenges WHERE id = ?`,
+		challengeID,
+	).Scan(&challenge.ID, &challenge.UserID, &challenge.Type, &challenge.Challenge,
+		&challenge.ExpiresAt, &challenge.SessionDataJSON, &challenge.RequestOptionsSnapshot)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get passkey challenge: %w", err)
+	}
+
+	return &challenge, nil
+}
+
+// DeletePasskeyChallenge deletes a passkey challenge.
+func (s *SQLiteDB) DeletePasskeyChallenge(challengeID string) error {
+	_, err := s.db.Exec(`DELETE FROM passkey_challenges WHERE id = ?`, challengeID)
+	if err != nil {
+		return fmt.Errorf("failed to delete passkey challenge: %w", err)
+	}
+	return nil
+}
+
+// CleanupExpiredPasskeyChallenges removes expired passkey challenges.
+func (s *SQLiteDB) CleanupExpiredPasskeyChallenges() error {
+	_, err := s.db.Exec(`DELETE FROM passkey_challenges WHERE expires_at < datetime('now')`)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup expired passkey challenges: %w", err)
+	}
+	return nil
+}
+
 // Ping checks if the database connection is alive.
 func (s *SQLiteDB) Ping() error {
 	return s.db.Ping()
+}
+
+// UpdateSessionExpiry updates the expiry time of a session by its hash.
+func (s *SQLiteDB) UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error {
+	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE session_hash = ?`, newExpiresAt, sessionHash)
+	if err != nil {
+		return fmt.Errorf("failed to update session expiry: %w", err)
+	}
+	return nil
 }
