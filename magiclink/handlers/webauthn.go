@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -112,52 +111,58 @@ func (h *WebAuthnHandlers) RegisterStart(c echo.Context) error {
 
 // RegisterFinish handles the completion of passkey registration
 func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
+	c.Logger().Infof("RegisterFinish: Starting passkey registration completion")
+
 	var req RegisterFinishRequest
 	if err := c.Bind(&req); err != nil {
+		c.Logger().Errorf("RegisterFinish: Failed to bind request: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format",
 		})
 	}
 
+	c.Logger().Infof("RegisterFinish: Request bound successfully - ChallengeID: %s", req.ChallengeID)
+
 	// Validate required fields
 	if req.ChallengeID == "" {
+		c.Logger().Errorf("RegisterFinish: Challenge ID is empty")
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Challenge ID is required",
 		})
 	}
 
 	if req.Response == nil {
+		c.Logger().Errorf("RegisterFinish: WebAuthn response is nil")
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "WebAuthn response is required",
 		})
 	}
 
-	// Parse the WebAuthn response
-	responseBytes, err := json.Marshal(req.Response)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid WebAuthn response format",
-		})
-	}
+	c.Logger().Infof("RegisterFinish: Basic validation passed, parsing WebAuthn response")
 
-	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(responseBytes)
+	c.Logger().Infof("RegisterFinish: Parsing WebAuthn response directly from HTTP request")
+
+	// Parse the WebAuthn response directly from the HTTP request
+	parsedResponse, err := protocol.ParseCredentialCreationResponse(c.Request())
 	if err != nil {
-		c.Logger().Errorf("Failed to parse WebAuthn response: %v", err)
+		c.Logger().Errorf("RegisterFinish: Failed to parse WebAuthn response from HTTP request: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Failed to parse WebAuthn response",
 		})
 	}
 
+	c.Logger().Infof("RegisterFinish: WebAuthn response parsed successfully from HTTP request")
+
 	// Complete registration with WebAuthn service
 	err = h.webauthn.FinishRegistration(req.ChallengeID, parsedResponse)
 	if err != nil {
-		c.Logger().Errorf("FinishRegistration failed: %v", err)
+		c.Logger().Errorf("RegisterFinish: FinishRegistration failed: %v", err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to complete passkey registration",
 		})
 	}
 
-	c.Logger().Infof("FinishRegistration successful - ChallengeID: %s", req.ChallengeID)
+	c.Logger().Infof("RegisterFinish: Passkey registration completed successfully - ChallengeID: %s", req.ChallengeID)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success": true,
