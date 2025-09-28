@@ -107,10 +107,35 @@ func (m *Manager) Validate(c echo.Context) (string, bool, error) {
 	}
 
 	// Check if the session has expired
-	if time.Now().After(expiresAt) {
+	now := time.Now()
+	if now.After(expiresAt) {
 		// Delete the expired session
 		_ = m.DB.DeleteSession(sessionHash)
 		return "", false, nil
+	}
+
+	// Rolling expiration: extend expiry and update cookie (best-effort)
+	newExpiresAt := now.Add(m.Config.SessionExpiry)
+	if err := m.DB.UpdateSessionExpiry(sessionHash, newExpiresAt); err == nil {
+		updatedCookie := &http.Cookie{
+			Name:     m.Config.CookieName,
+			Value:    cookie.Value,
+			Path:     m.Config.CookiePath,
+			Domain:   m.Config.CookieDomain,
+			Expires:  newExpiresAt,
+			Secure:   m.Config.CookieSecure,
+			HttpOnly: m.Config.CookieHTTPOnly,
+		}
+		// Set SameSite attribute same as on Create
+		switch m.Config.CookieSameSite {
+		case "strict":
+			updatedCookie.SameSite = http.SameSiteStrictMode
+		case "lax":
+			updatedCookie.SameSite = http.SameSiteLaxMode
+		case "none":
+			updatedCookie.SameSite = http.SameSiteNoneMode
+		}
+		c.SetCookie(updatedCookie)
 	}
 
 	return userID, true, nil

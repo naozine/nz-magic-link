@@ -422,3 +422,12 @@ func (s *SQLiteDB) CleanupExpiredPasskeyChallenges() error {
 func (s *SQLiteDB) Ping() error {
 	return s.db.Ping()
 }
+
+// UpdateSessionExpiry updates the expiry time of a session by its hash.
+func (s *SQLiteDB) UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error {
+	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE session_hash = ?`, newExpiresAt, sessionHash)
+	if err != nil {
+		return fmt.Errorf("failed to update session expiry: %w", err)
+	}
+	return nil
+}

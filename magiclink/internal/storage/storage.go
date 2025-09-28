@@ -48,6 +48,7 @@ type Database interface {
 	// Session operations
 	SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error
 	GetSessionByHash(sessionHash string) (sessionID, userID string, expiresAt time.Time, err error)
+	UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error
 	DeleteSession(sessionHash string) error
 	CleanupExpiredSessions() error
 

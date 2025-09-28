@@ -583,3 +583,28 @@ func (l *LevelDB) Ping() error {
 	}
 	return nil
 }
+
+// UpdateSessionExpiry updates the expiry time of a session by its hash.
+func (l *LevelDB) UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error {
+	sessionKey := sessionPrefix + sessionHash
+	data, err := l.db.Get([]byte(sessionKey), nil)
+	if err == leveldb.ErrNotFound {
+		return nil // treat as no-op if session missing
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get session for update: %w", err)
+	}
+	var sessionData SessionData
+	if err := json.Unmarshal(data, &sessionData); err != nil {
+		return fmt.Errorf("failed to unmarshal session data: %w", err)
+	}
+	sessionData.ExpiresAt = newExpiresAt
+	updated, err := json.Marshal(sessionData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated session data: %w", err)
+	}
+	if err := l.db.Put([]byte(sessionKey), updated, nil); err != nil {
+		return fmt.Errorf("failed to update session expiry: %w", err)
+	}
+	return nil
+}
