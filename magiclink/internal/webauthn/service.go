@@ -42,7 +42,9 @@ func NewService(config Config, db storage.Database) (*Service, error) {
 		RPID:          config.RPID,
 		RPOrigins:     config.AllowedOrigins,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
-			UserVerification: protocol.UserVerificationRequirement(config.UserVerification),
+			UserVerification:   protocol.UserVerificationRequirement(config.UserVerification),
+			RequireResidentKey: &config.RequireResidentKey,
+			ResidentKey:        protocol.ResidentKeyRequirementRequired,
 		},
 		// Enable debug mode for development
 		Debug: true,
@@ -279,8 +281,39 @@ func (s *Service) BeginLogin(email string) (*protocol.CredentialAssertion, strin
 
 // BeginDiscoverableLogin starts discoverable (userless) authentication
 func (s *Service) BeginDiscoverableLogin() (*protocol.CredentialAssertion, string, error) {
-	// Placeholder implementation - to be completed when WebAuthn API is stabilized
-	return nil, "", fmt.Errorf("discoverable login not yet implemented")
+	// Begin discoverable login with WebAuthn (no user parameter needed)
+	assertion, sessionData, err := s.webauthn.BeginDiscoverableLogin()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to begin discoverable login: %w", err)
+	}
+
+	// Generate challenge ID
+	challengeID, err := s.generateChallengeID()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate challenge ID: %w", err)
+	}
+
+	// Store challenge in database with empty user ID (will be filled during finish)
+	challenge := &storage.PasskeyChallenge{
+		ID:                     challengeID,
+		UserID:                 "", // Unknown until authentication completes
+		Type:                   "assertion",
+		Challenge:              sessionData.Challenge,
+		ExpiresAt:              time.Now().Add(s.config.ChallengeTTL),
+		SessionDataJSON:        s.encodeSessionData(sessionData),
+		RequestOptionsSnapshot: s.encodeAssertionOptions(assertion),
+	}
+
+	if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
+		return nil, "", fmt.Errorf("failed to save challenge: %w", err)
+	}
+
+	fmt.Printf("✓ Discoverable login challenge created:\n")
+	fmt.Printf("  - Challenge ID: %s\n", challengeID)
+	fmt.Printf("  - Type: %s\n", challenge.Type)
+	fmt.Printf("  - User verification: %s\n", assertion.Response.UserVerification)
+
+	return assertion, challengeID, nil
 }
 
 // FinishLogin completes passkey authentication
@@ -308,10 +341,36 @@ func (s *Service) FinishLogin(challengeID string, response *protocol.ParsedCrede
 		return "", fmt.Errorf("failed to decode session data: %w", err)
 	}
 
-	// Create user for verification
-	user, err := s.CreateUser(challenge.UserID)
-	if err != nil {
-		return "", fmt.Errorf("failed to create user: %w", err)
+	var user *User
+
+	// Handle discoverable login (empty UserID in challenge)
+	if challenge.UserID == "" {
+		fmt.Printf("Debug: Processing discoverable login - finding user by credential ID\n")
+
+		// Find user by credential ID for discoverable login
+		userID, err := s.findUserByCredentialID(response.RawID)
+		if err != nil {
+			return "", fmt.Errorf("failed to find user for discoverable login: %w", err)
+		}
+
+		fmt.Printf("Debug: Found user %s for discoverable login\n", userID)
+
+		// Update challenge with discovered user ID
+		challenge.UserID = userID
+		if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
+			fmt.Printf("Warning: failed to update challenge with user ID: %v\n", err)
+		}
+
+		user, err = s.CreateUser(userID)
+		if err != nil {
+			return "", fmt.Errorf("failed to create user: %w", err)
+		}
+	} else {
+		// Regular login with known user ID
+		user, err = s.CreateUser(challenge.UserID)
+		if err != nil {
+			return "", fmt.Errorf("failed to create user: %w", err)
+		}
 	}
 
 	// Check if user has any credentials
@@ -481,4 +540,18 @@ func (s *Service) encodeAssertionOptions(options *protocol.CredentialAssertion) 
 		return "{}"
 	}
 	return string(data)
+}
+
+// findUserByCredentialID finds the user ID associated with a credential ID
+func (s *Service) findUserByCredentialID(credentialID []byte) (string, error) {
+	// Convert credential ID to base64 string for database lookup
+	credentialIDStr := base64.RawURLEncoding.EncodeToString(credentialID)
+
+	// Get credential from database
+	storedCred, err := s.storage.GetPasskeyCredentialByID(credentialIDStr)
+	if err != nil {
+		return "", fmt.Errorf("credential not found: %w", err)
+	}
+
+	return storedCred.UserID, nil
 }

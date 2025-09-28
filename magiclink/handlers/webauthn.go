@@ -287,17 +287,37 @@ func (h *WebAuthnHandlers) LoginStart(c echo.Context) error {
 
 // DiscoverableLoginStart handles the start of discoverable (userless) authentication
 func (h *WebAuthnHandlers) DiscoverableLoginStart(c echo.Context) error {
+	c.Logger().Infof("DiscoverableLoginStart: Starting discoverable (userless) authentication")
+
 	options, challengeID, err := h.webauthn.BeginDiscoverableLogin()
 	if err != nil {
+		c.Logger().Errorf("DiscoverableLoginStart: Failed to start discoverable login: %v", err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to start discoverable login",
 		})
 	}
 
-	return c.JSON(http.StatusOK, LoginStartResponse{
-		ChallengeID: challengeID,
-		Options:     options,
-	})
+	c.Logger().Infof("DiscoverableLoginStart: Discoverable login challenge created - ChallengeID: %s", challengeID)
+
+	// Convert WebAuthn options to browser-compatible format
+	convertedOptions, err := convertCredentialAssertionForBrowser(options)
+	if err != nil {
+		c.Logger().Errorf("DiscoverableLoginStart: Failed to convert options for browser: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to prepare discoverable login options",
+		})
+	}
+
+	response := map[string]interface{}{
+		"challenge_id": challengeID,
+		"options":      convertedOptions,
+	}
+
+	if responseBytes, err := json.Marshal(response); err == nil {
+		c.Logger().Debugf("DiscoverableLoginStart: Response being sent to browser: %s", string(responseBytes))
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
 // LoginFinish handles the completion of passkey authentication
