@@ -348,10 +348,23 @@
             }
 
             const startData = await startResponse.json();
+            console.log('Login start data:', JSON.stringify(startData, null, 2));
+
+            // Convert base64 strings to ArrayBuffers for WebAuthn
+            const publicKeyOptions = {
+                ...startData.options,
+                challenge: base64urlToArrayBuffer(startData.options.challenge),
+                allowCredentials: startData.options.allowCredentials.map(cred => ({
+                    ...cred,
+                    id: base64urlToArrayBuffer(cred.id)
+                }))
+            };
+
+            console.log('Prepared options for WebAuthn:', publicKeyOptions);
 
             // Get credential
             const credential = await navigator.credentials.get({
-                publicKey: startData.options.publicKey
+                publicKey: publicKeyOptions
             });
 
             // Finish login
