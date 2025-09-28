@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -263,10 +264,25 @@ func (h *WebAuthnHandlers) LoginStart(c echo.Context) error {
 
 	c.Logger().Infof("LoginStart: Login challenge created successfully - ChallengeID: %s", challengeID)
 
-	return c.JSON(http.StatusOK, LoginStartResponse{
-		ChallengeID: challengeID,
-		Options:     options,
-	})
+	// Convert WebAuthn options to browser-compatible format
+	convertedOptions, err := convertCredentialAssertionForBrowser(options)
+	if err != nil {
+		c.Logger().Errorf("LoginStart: Failed to convert options for browser: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to prepare login options",
+		})
+	}
+
+	response := map[string]interface{}{
+		"challenge_id": challengeID,
+		"options":      convertedOptions,
+	}
+
+	if responseBytes, err := json.Marshal(response); err == nil {
+		c.Logger().Debugf("LoginStart: Response being sent to browser: %s", string(responseBytes))
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
 // DiscoverableLoginStart handles the start of discoverable (userless) authentication
@@ -421,4 +437,31 @@ func (h *WebAuthnHandlers) DebugCredentials(c echo.Context) error {
 		"message": "Debug endpoint - check server logs for stored credential details",
 		"note":    "This endpoint is for development only",
 	})
+}
+
+// convertCredentialAssertionForBrowser converts WebAuthn CredentialAssertion to browser-compatible format
+func convertCredentialAssertionForBrowser(assertion *protocol.CredentialAssertion) (map[string]interface{}, error) {
+	if assertion == nil {
+		return nil, fmt.Errorf("assertion is nil")
+	}
+
+	// Convert allowCredentials to browser format
+	allowCredentials := make([]map[string]interface{}, len(assertion.Response.AllowedCredentials))
+	for i, cred := range assertion.Response.AllowedCredentials {
+		allowCredentials[i] = map[string]interface{}{
+			"id":         base64.RawURLEncoding.EncodeToString(cred.CredentialID), // base64 for browser compatibility
+			"type":       cred.Type,
+			"transports": cred.Transport,
+		}
+	}
+
+	result := map[string]interface{}{
+		"challenge":        base64.RawURLEncoding.EncodeToString(assertion.Response.Challenge),
+		"timeout":          assertion.Response.Timeout,
+		"rpId":             assertion.Response.RelyingPartyID,
+		"allowCredentials": allowCredentials,
+		"userVerification": assertion.Response.UserVerification,
+	}
+
+	return result, nil
 }

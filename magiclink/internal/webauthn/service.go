@@ -261,6 +261,15 @@ func (s *Service) BeginLogin(email string) (*protocol.CredentialAssertion, strin
 	fmt.Printf("  - User ID: %s\n", email)
 	fmt.Printf("  - Credentials found: %d\n", len(user.credentials))
 
+	// Debug: Log the assertion options for troubleshooting
+	if assertion != nil && len(assertion.Response.AllowedCredentials) > 0 {
+		fmt.Printf("  - AllowedCredentials:\n")
+		for i, cred := range assertion.Response.AllowedCredentials {
+			fmt.Printf("    [%d] ID length: %d bytes, Type: %s, Transports: %v\n",
+				i, len(cred.CredentialID), cred.Type, cred.Transport)
+		}
+	}
+
 	return assertion, challengeID, nil
 }
 
@@ -353,16 +362,31 @@ func (s *Service) getWebAuthnCredentials(userID string) ([]webauthn.Credential, 
 	for _, cred := range storedCreds {
 		credID, err := base64.RawURLEncoding.DecodeString(cred.ID)
 		if err != nil {
+			fmt.Printf("Warning: failed to decode credential ID %s: %v\n", cred.ID, err)
 			continue // Skip invalid credentials
 		}
+
+		// Decode AAGUID if present
+		var aaguid []byte
+		if cred.AAGUID != "" {
+			if decodedAAGUID, err := base64.RawURLEncoding.DecodeString(cred.AAGUID); err == nil {
+				aaguid = decodedAAGUID
+			} else {
+				fmt.Printf("Warning: failed to decode AAGUID %s: %v\n", cred.AAGUID, err)
+			}
+		}
+
+		transports := transportProtocols(cred.Transports)
+		fmt.Printf("Debug: Credential %s - Stored transports: %v, Converted: %v\n", cred.ID[:8], cred.Transports, transports)
 
 		credentials = append(credentials, webauthn.Credential{
 			ID:        credID,
 			PublicKey: cred.PublicKey,
 			Authenticator: webauthn.Authenticator{
 				SignCount: cred.SignCount,
+				AAGUID:    aaguid,
 			},
-			Transport: transportProtocols(cred.Transports),
+			Transport: transports,
 		})
 	}
 
@@ -378,6 +402,14 @@ func transportStrings(transports []protocol.AuthenticatorTransport) []string {
 }
 
 func transportProtocols(transports []string) []protocol.AuthenticatorTransport {
+	if len(transports) == 0 {
+		// If no transports are stored, provide reasonable defaults
+		return []protocol.AuthenticatorTransport{
+			protocol.AuthenticatorTransport("internal"), // For built-in authenticators
+			protocol.AuthenticatorTransport("usb"),      // For external USB keys
+		}
+	}
+
 	result := make([]protocol.AuthenticatorTransport, len(transports))
 	for i, t := range transports {
 		result[i] = protocol.AuthenticatorTransport(t)
