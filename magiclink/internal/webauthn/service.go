@@ -145,8 +145,65 @@ func (s *Service) BeginRegistration(email string) (*protocol.CredentialCreation,
 
 // FinishRegistration completes passkey registration
 func (s *Service) FinishRegistration(challengeID string, response *protocol.ParsedCredentialCreationData) error {
-	// Placeholder implementation - to be completed when WebAuthn API is stabilized
-	return fmt.Errorf("passkey registration finish not yet implemented")
+	// Get challenge from database
+	challenge, err := s.storage.GetPasskeyChallenge(challengeID)
+	if err != nil {
+		return fmt.Errorf("failed to get challenge: %w", err)
+	}
+
+	// Check if challenge is expired
+	if time.Now().After(challenge.ExpiresAt) {
+		s.storage.DeletePasskeyChallenge(challengeID) // Clean up expired challenge
+		return fmt.Errorf("challenge has expired")
+	}
+
+	// Check challenge type
+	if challenge.Type != "attestation" {
+		return fmt.Errorf("invalid challenge type for registration: %s", challenge.Type)
+	}
+
+	// Decode session data from JSON
+	var sessionData webauthn.SessionData
+	if err := json.Unmarshal([]byte(challenge.SessionDataJSON), &sessionData); err != nil {
+		return fmt.Errorf("failed to decode session data: %w", err)
+	}
+
+	// Create user for verification
+	user, err := s.CreateUser(challenge.UserID)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+
+	// Use WebAuthn library to create credential from parsed response
+	credential, err := s.webauthn.CreateCredential(user, sessionData, response)
+	if err != nil {
+		return fmt.Errorf("failed to create credential: %w", err)
+	}
+
+	// Store credential in database
+	storedCred := &storage.PasskeyCredential{
+		ID:              base64.RawURLEncoding.EncodeToString(credential.ID),
+		UserID:          challenge.UserID,
+		PublicKey:       credential.PublicKey,
+		SignCount:       credential.Authenticator.SignCount,
+		AAGUID:          base64.RawURLEncoding.EncodeToString(credential.Authenticator.AAGUID),
+		AttestationType: credential.AttestationType,
+		Transports:      transportStrings(credential.Transport),
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+
+	if err := s.storage.SavePasskeyCredential(storedCred); err != nil {
+		return fmt.Errorf("failed to save credential: %w", err)
+	}
+
+	// Clean up challenge
+	if err := s.storage.DeletePasskeyChallenge(challengeID); err != nil {
+		// Log but don't fail the operation
+		fmt.Printf("Warning: failed to delete challenge %s: %v\n", challengeID, err)
+	}
+
+	return nil
 }
 
 // BeginLogin starts passkey authentication

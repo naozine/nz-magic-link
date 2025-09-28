@@ -111,10 +111,40 @@ func (h *WebAuthnHandlers) RegisterStart(c echo.Context) error {
 
 // RegisterFinish handles the completion of passkey registration
 func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
-	// For now, return a placeholder response
-	// This would be implemented once the WebAuthn service API is stabilized
-	return c.JSON(http.StatusNotImplemented, ErrorResponse{
-		Error: "Passkey registration finish is not yet implemented",
+	var req RegisterFinishRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid request format",
+		})
+	}
+
+	// Validate required fields
+	if req.ChallengeID == "" {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Challenge ID is required",
+		})
+	}
+
+	if req.Response == nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "WebAuthn response is required",
+		})
+	}
+
+	// Complete registration with WebAuthn service
+	err := h.webauthn.FinishRegistration(req.ChallengeID, req.Response)
+	if err != nil {
+		c.Logger().Errorf("FinishRegistration failed: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to complete passkey registration",
+		})
+	}
+
+	c.Logger().Infof("FinishRegistration successful - ChallengeID: %s", req.ChallengeID)
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Passkey registration completed successfully",
 	})
 }
 
