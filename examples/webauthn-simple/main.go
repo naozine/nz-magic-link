@@ -36,6 +36,7 @@ func main() {
 	config.WebAuthnAllowedOrigins = []string{"http://localhost:8080"}
 	config.LoginURL = "/auth/login"
 	config.VerifyURL = "/auth/verify"
+	config.DatabaseType = "leveldb"
 
 	// Create MagicLink instance
 	ml, err := magiclink.New(config)

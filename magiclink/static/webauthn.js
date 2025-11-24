@@ -41,7 +41,8 @@
                 const publicKey = startResp.options.publicKey;
                 
                 // Decode Challenge & User ID
-                publicKey.challenge = bufferDecode(startResp.challenge_id); // Backend often sends challenge in separate field or inside options
+                // challenge_id is for the server session, publicKey.challenge is the actual WebAuthn challenge
+                publicKey.challenge = bufferDecode(publicKey.challenge); 
                 if (publicKey.user && publicKey.user.id) {
                      // If it's already a string, decode it. If library handles it differently, adjust here.
                      // The `go-webauthn` library usually returns `user.id` as a string in JSON.

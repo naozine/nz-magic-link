@@ -54,17 +54,19 @@ type RegisterFinishRequest struct {
 }
 
 // RawWebAuthnCredential represents the raw credential data from the client
+// Changed []byte to string to handle Base64URL encoded strings from JS client
 type RawWebAuthnCredential struct {
 	ID       string                   `json:"id"`
-	RawID    []byte                   `json:"rawId"`
+	RawID    string                   `json:"rawId"`
 	Response RawAuthenticatorResponse `json:"response"`
 	Type     string                   `json:"type"`
 }
 
 // RawAuthenticatorResponse represents the raw authenticator response
+// Changed []byte to string
 type RawAuthenticatorResponse struct {
-	AttestationObject []byte `json:"attestationObject"`
-	ClientDataJSON    []byte `json:"clientDataJSON"`
+	AttestationObject string `json:"attestationObject"`
+	ClientDataJSON    string `json:"clientDataJSON"`
 }
 
 type LoginStartRequest struct {
@@ -82,19 +84,21 @@ type LoginFinishRequest struct {
 }
 
 // RawWebAuthnAssertion represents the raw assertion data from the client
+// Changed []byte to string
 type RawWebAuthnAssertion struct {
 	ID       string                        `json:"id"`
-	RawID    []byte                        `json:"rawId"`
+	RawID    string                        `json:"rawId"`
 	Response RawAuthenticatorAssertionResp `json:"response"`
 	Type     string                        `json:"type"`
 }
 
 // RawAuthenticatorAssertionResp represents the raw authenticator assertion response
+// Changed []byte to string
 type RawAuthenticatorAssertionResp struct {
-	AuthenticatorData []byte `json:"authenticatorData"`
-	ClientDataJSON    []byte `json:"clientDataJSON"`
-	Signature         []byte `json:"signature"`
-	UserHandle        []byte `json:"userHandle,omitempty"`
+	AuthenticatorData string `json:"authenticatorData"`
+	ClientDataJSON    string `json:"clientDataJSON"`
+	Signature         string `json:"signature"`
+	UserHandle        string `json:"userHandle,omitempty"`
 }
 
 type LoginFinishResponse struct {
@@ -179,12 +183,13 @@ func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
 	c.Logger().Infof("RegisterFinish: Converting raw credential data to proper format")
 
 	// Convert the raw credential data to the format expected by the WebAuthn library
+	// Inputs are already Base64URL strings, so pass them directly
 	webauthnResponse := map[string]interface{}{
 		"id":    req.Response.ID,
-		"rawId": base64.RawURLEncoding.EncodeToString(req.Response.RawID),
+		"rawId": req.Response.RawID,
 		"response": map[string]interface{}{
-			"attestationObject": base64.RawURLEncoding.EncodeToString(req.Response.Response.AttestationObject),
-			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(req.Response.Response.ClientDataJSON),
+			"attestationObject": req.Response.Response.AttestationObject,
+			"clientDataJSON":    req.Response.Response.ClientDataJSON,
 		},
 		"type": req.Response.Type,
 	}
@@ -355,20 +360,21 @@ func (h *WebAuthnHandlers) LoginFinish(c echo.Context) error {
 	c.Logger().Infof("LoginFinish: Basic validation passed, converting WebAuthn response")
 
 	// Convert the raw assertion data to the format expected by the WebAuthn library
+	// Inputs are already Base64URL strings
 	webauthnResponse := map[string]interface{}{
 		"id":    req.Response.ID,
-		"rawId": base64.RawURLEncoding.EncodeToString(req.Response.RawID),
+		"rawId": req.Response.RawID,
 		"response": map[string]interface{}{
-			"authenticatorData": base64.RawURLEncoding.EncodeToString(req.Response.Response.AuthenticatorData),
-			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(req.Response.Response.ClientDataJSON),
-			"signature":         base64.RawURLEncoding.EncodeToString(req.Response.Response.Signature),
+			"authenticatorData": req.Response.Response.AuthenticatorData,
+			"clientDataJSON":    req.Response.Response.ClientDataJSON,
+			"signature":         req.Response.Response.Signature,
 		},
 		"type": req.Response.Type,
 	}
 
 	// Add userHandle if present
-	if len(req.Response.Response.UserHandle) > 0 {
-		webauthnResponse["response"].(map[string]interface{})["userHandle"] = base64.RawURLEncoding.EncodeToString(req.Response.Response.UserHandle)
+	if req.Response.Response.UserHandle != "" {
+		webauthnResponse["response"].(map[string]interface{})["userHandle"] = req.Response.Response.UserHandle
 	}
 
 	c.Logger().Infof("LoginFinish: Assertion data converted to proper format")
