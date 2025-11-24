@@ -6,3 +6,5 @@
 /level.db/
 /dev_bypass_emails.txt
 /magiclink/.env
+/examples/webauthn-simple/.bypass_emails
+/examples/webauthn-simple/magiclink.db

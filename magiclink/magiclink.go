@@ -268,7 +268,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 
 	// Register WebAuthn handlers if enabled
 	if m.Config.WebAuthnEnabled && m.WebAuthnService != nil {
-		webauthnHandlers := handlers.NewWebAuthnHandlers(m.WebAuthnService, *m.SessionManager)
+		webauthnHandlers := handlers.NewWebAuthnHandlers(m.WebAuthnService, *m.SessionManager, WebAuthnClientJS)
 		webauthnHandlers.RegisterRoutes(e)
 	}
 }

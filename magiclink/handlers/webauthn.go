@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -25,13 +26,15 @@ type WebAuthnService interface {
 type WebAuthnHandlers struct {
 	webauthn       WebAuthnService
 	sessionManager session.Manager
+	clientScriptFS embed.FS
 }
 
 // NewWebAuthnHandlers creates new WebAuthn handlers
-func NewWebAuthnHandlers(webauthnService WebAuthnService, sessionMgr session.Manager) *WebAuthnHandlers {
+func NewWebAuthnHandlers(webauthnService WebAuthnService, sessionMgr session.Manager, clientScriptFS embed.FS) *WebAuthnHandlers {
 	return &WebAuthnHandlers{
 		webauthn:       webauthnService,
 		sessionManager: sessionMgr,
+		clientScriptFS: clientScriptFS,
 	}
 }
 
@@ -422,6 +425,18 @@ func (h *WebAuthnHandlers) LoginFinish(c echo.Context) error {
 	})
 }
 
+// ServeClientScript handles the request for the WebAuthn client script
+func (h *WebAuthnHandlers) ServeClientScript(c echo.Context) error {
+	data, err := h.clientScriptFS.ReadFile("static/webauthn.js")
+	if err != nil {
+		c.Logger().Errorf("ServeClientScript: Failed to read script file: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to load client script",
+		})
+	}
+	return c.Blob(http.StatusOK, "application/javascript", data)
+}
+
 // RegisterRoutes Helper method to register all WebAuthn routes
 func (h *WebAuthnHandlers) RegisterRoutes(e *echo.Echo) {
 	webauthn := e.Group("/webauthn")
@@ -434,6 +449,9 @@ func (h *WebAuthnHandlers) RegisterRoutes(e *echo.Echo) {
 	webauthn.POST("/login/start", h.LoginStart)
 	webauthn.POST("/login/finish", h.LoginFinish)
 	webauthn.POST("/login/discoverable", h.DiscoverableLoginStart)
+
+	// Client script
+	webauthn.GET("/static/webauthn.js", h.ServeClientScript)
 
 	// Debug routes (for development only)
 	webauthn.GET("/debug/credentials/:email", h.DebugCredentials)
