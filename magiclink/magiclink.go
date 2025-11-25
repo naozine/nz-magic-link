@@ -4,6 +4,7 @@ package magiclink
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -160,6 +161,31 @@ func New(config Config) (*MagicLink, error) {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
+	return newMagicLink(config, database)
+}
+
+// NewWithDB creates a new MagicLink instance with the provided configuration and an existing database connection.
+// Currently, this is only supported when DatabaseType is "sqlite".
+func NewWithDB(config Config, db *sql.DB) (*MagicLink, error) {
+	// Create database configuration
+	dbConfig := storage.Config{
+		Type:    config.DatabaseType,
+		Path:    config.DatabasePath, // Path might not be needed if we inject DB, but good to keep consistent
+		Options: config.DatabaseOptions,
+	}
+
+	// Initialize the database using factory with injected DB
+	factory := storage.NewFactory()
+	database, err := factory.CreateWithDB(dbConfig, db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database with existing connection: %w", err)
+	}
+
+	return newMagicLink(config, database)
+}
+
+// newMagicLink initializes the MagicLink instance with the provided configuration and database.
+func newMagicLink(config Config, database storage.Database) (*MagicLink, error) {
 	// Initialize the database schema
 	if err := database.Init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database schema: %w", err)

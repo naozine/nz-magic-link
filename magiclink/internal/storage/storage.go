@@ -2,6 +2,8 @@
 package storage
 
 import (
+	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -101,6 +103,17 @@ func (f *Factory) Create(config Config) (Database, error) {
 		return NewLevelDB(config)
 	default:
 		return nil, &UnsupportedDatabaseError{Type: config.Type}
+	}
+}
+
+// CreateWithDB creates a new database instance using an existing database connection.
+// Currently only supports SQLite with *sql.DB.
+func (f *Factory) CreateWithDB(config Config, db *sql.DB) (Database, error) {
+	switch DatabaseType(config.Type) {
+	case TypeSQLite:
+		return NewSQLiteDBFromDB(db)
+	default:
+		return nil, fmt.Errorf("database injection is not supported for type: %s", config.Type)
 	}
 }
 

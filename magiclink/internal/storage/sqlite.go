@@ -51,6 +51,14 @@ func NewSQLiteDB(config Config) (*SQLiteDB, error) {
 	return &SQLiteDB{db: db}, nil
 }
 
+// NewSQLiteDBFromDB creates a new SQLite database instance using an existing sql.DB connection.
+func NewSQLiteDBFromDB(db *sql.DB) (*SQLiteDB, error) {
+	if db == nil {
+		return nil, fmt.Errorf("db connection cannot be nil")
+	}
+	return &SQLiteDB{db: db}, nil
+}
+
 // Init initializes the database schema.
 func (s *SQLiteDB) Init() error {
 	// Create tokens table
