@@ -72,6 +72,8 @@ type Config struct {
 	EmailTemplate     string
 	EmailSubject      string
 	ServerAddr        string
+	// LoginSuccessMessage is the message returned to the user after a successful login request (email sent).
+	LoginSuccessMessage string
 
 	// Rate limiting
 	MaxLoginAttempts int
@@ -115,6 +117,7 @@ func DefaultConfig() Config {
 		ErrorRedirectURL:       "",
 		EmailSubject:           "Your Magic Link for Authentication",
 		ServerAddr:             "http://localhost:8080",
+		LoginSuccessMessage:    "Magic link sent to your email",
 		MaxLoginAttempts:       5,
 		RateLimitWindow:        15 * time.Minute,
 
@@ -279,6 +282,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.DevBypassEmails,
 		m.Config.ServerAddr,
 		m.Config.VerifyURL,
+		m.Config.LoginSuccessMessage,
 	))
 
 	e.GET(m.Config.VerifyURL, handlers.VerifyHandler(
