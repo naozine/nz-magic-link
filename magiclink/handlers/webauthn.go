@@ -24,17 +24,24 @@ type WebAuthnService interface {
 
 // WebAuthnHandlers contains all WebAuthn-related handlers
 type WebAuthnHandlers struct {
-	webauthn       WebAuthnService
-	sessionManager session.Manager
-	clientScriptFS embed.FS
+	webauthn           WebAuthnService
+	sessionManager     session.Manager
+	clientScriptFS     embed.FS
+	successRedirectURL string
 }
 
 // NewWebAuthnHandlers creates new WebAuthn handlers
-func NewWebAuthnHandlers(webauthnService WebAuthnService, sessionMgr session.Manager, clientScriptFS embed.FS) *WebAuthnHandlers {
+func NewWebAuthnHandlers(webauthnService WebAuthnService, sessionMgr session.Manager, clientScriptFS embed.FS, successRedirectURL string) *WebAuthnHandlers {
+	// Default to /dashboard if not provided
+	if successRedirectURL == "" {
+		successRedirectURL = "/dashboard"
+	}
+
 	return &WebAuthnHandlers{
-		webauthn:       webauthnService,
-		sessionManager: sessionMgr,
-		clientScriptFS: clientScriptFS,
+		webauthn:           webauthnService,
+		sessionManager:     sessionMgr,
+		clientScriptFS:     clientScriptFS,
+		successRedirectURL: successRedirectURL,
 	}
 }
 
@@ -427,7 +434,7 @@ func (h *WebAuthnHandlers) LoginFinish(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, LoginFinishResponse{
 		Success:     true,
-		RedirectURL: "/dashboard", // Redirect to dashboard after successful login
+		RedirectURL: h.successRedirectURL, // Redirect to configured URL after successful login
 	})
 }
 

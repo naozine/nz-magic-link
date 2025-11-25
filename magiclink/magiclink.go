@@ -86,6 +86,7 @@ type Config struct {
 	WebAuthnUserVerification   string        `json:"webauthn_user_verification"`
 	WebAuthnRequireResidentKey bool          `json:"webauthn_require_resident_key"`
 	WebAuthnEnabled            bool          `json:"webauthn_enabled"`
+	WebAuthnRedirectURL        string        `json:"webauthn_redirect_url"` // Redirect URL after successful WebAuthn login
 }
 
 // DefaultConfig returns a Config with sensible default values.
@@ -126,6 +127,7 @@ func DefaultConfig() Config {
 		WebAuthnUserVerification:   "preferred",
 		WebAuthnRequireResidentKey: true,
 		WebAuthnEnabled:            false, // Disabled by default
+		WebAuthnRedirectURL:        "/dashboard",
 	}
 }
 
@@ -268,7 +270,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 
 	// Register WebAuthn handlers if enabled
 	if m.Config.WebAuthnEnabled && m.WebAuthnService != nil {
-		webauthnHandlers := handlers.NewWebAuthnHandlers(m.WebAuthnService, *m.SessionManager, WebAuthnClientJS)
+		webauthnHandlers := handlers.NewWebAuthnHandlers(m.WebAuthnService, *m.SessionManager, WebAuthnClientJS, m.Config.WebAuthnRedirectURL)
 		webauthnHandlers.RegisterRoutes(e)
 	}
 }
