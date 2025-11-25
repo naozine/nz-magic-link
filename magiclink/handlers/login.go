@@ -34,7 +34,7 @@ type ErrorResponse struct {
 var rateLimiters = make(map[string]*rate.Limiter)
 
 // LoginHandler handles the login request.
-func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, serverAddr string, verifyURL string, loginSuccessMessage string) echo.HandlerFunc {
+func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Get the client IP address for rate limiting
 		ip := c.RealIP()
@@ -74,6 +74,15 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 			return c.JSON(http.StatusBadRequest, ErrorResponse{
 				Error: "Invalid email format",
 			})
+		}
+
+		// Check if login is allowed
+		if allowLogin != nil {
+			if err := allowLogin(c, req.Email); err != nil {
+				return c.JSON(http.StatusForbidden, ErrorResponse{
+					Error: err.Error(),
+				})
+			}
 		}
 
 		// Check user-specific rate limit

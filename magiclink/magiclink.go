@@ -75,6 +75,11 @@ type Config struct {
 	// LoginSuccessMessage is the message returned to the user after a successful login request (email sent).
 	LoginSuccessMessage string
 
+	// AllowLogin is a callback function that checks if a user is allowed to log in.
+	// It takes the context and the email address as arguments.
+	// If it returns an error, the login process is aborted and the error message is returned to the user.
+	AllowLogin func(c echo.Context, email string) error
+
 	// Rate limiting
 	MaxLoginAttempts int
 	RateLimitWindow  time.Duration
@@ -283,6 +288,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.Config.ServerAddr,
 		m.Config.VerifyURL,
 		m.Config.LoginSuccessMessage,
+		m.Config.AllowLogin,
 	))
 
 	e.GET(m.Config.VerifyURL, handlers.VerifyHandler(
