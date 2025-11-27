@@ -50,7 +50,7 @@ func main() {
 
 	// Setup templates
 	t := &Template{
-		templates: template.Must(template.ParseGlob("views/*.html")),
+		templates: template.Must(template.ParseGlob("examples/webauthn-simple/views/*.html")),
 	}
 	e.Renderer = t
 
