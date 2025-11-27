@@ -101,6 +101,16 @@ func (m *mockDB) GetSessionByHash(sessionHash string) (sessionID, userID string,
 func (m *mockDB) DeleteSession(sessionHash string) error { delete(m.sessions, sessionHash); return nil }
 func (m *mockDB) CleanupExpiredSessions() error          { return nil }
 
+func (m *mockDB) UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error {
+	s, ok := m.sessions[sessionHash]
+	if !ok {
+		return nil
+	}
+	s.expiresAt = newExpiresAt
+	m.sessions[sessionHash] = s
+	return nil
+}
+
 // Passkey-related methods (stubs for testing)
 func (m *mockDB) SavePasskeyCredential(cred *storage.PasskeyCredential) error { return nil }
 func (m *mockDB) GetPasskeyCredentialByID(credentialID string) (*storage.PasskeyCredential, error) {
