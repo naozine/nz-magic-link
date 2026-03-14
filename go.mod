@@ -6,7 +6,6 @@ require (
 	github.com/go-webauthn/webauthn v0.15.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/labstack/gommon v0.4.2
-	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/syndtr/goleveldb v1.0.0
 	golang.org/x/time v0.14.0
 	modernc.org/sqlite v1.40.1
