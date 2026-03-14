@@ -182,7 +182,7 @@ func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinute
 }
 
 // sendWithTLS sends email using TLS from the start (port 465)
-func (s *Sender) sendWithTLS(to string, body []byte) (err error) {
+func (s *Sender) sendWithTLS(to string, body []byte) error {
 	addr := fmt.Sprintf("%s:%d", s.Config.Host, s.Config.Port)
 
 	// Create TLS configuration
@@ -196,22 +196,14 @@ func (s *Sender) sendWithTLS(to string, body []byte) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to connect with TLS: %w", err)
 	}
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close TLS connection: %w", closeErr)
-		}
-	}()
 
-	// Create an SMTP client
+	// Create an SMTP client (takes ownership of conn; Quit closes it)
 	client, err := smtp.NewClient(conn, s.Config.Host)
 	if err != nil {
+		conn.Close()
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
-	defer func() {
-		if quitErr := client.Quit(); quitErr != nil && err == nil {
-			err = fmt.Errorf("failed to quit SMTP client: %w", quitErr)
-		}
-	}()
+	defer client.Quit()
 
 	// Authenticate
 	auth := smtp.PlainAuth("", s.Config.Username, s.Config.Password, s.Config.Host)
@@ -234,14 +226,13 @@ func (s *Sender) sendWithTLS(to string, body []byte) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to get data writer: %w", err)
 	}
-	defer func() {
-		if closeErr := writer.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close data writer: %w", closeErr)
-		}
-	}()
 
 	if _, err := writer.Write(body); err != nil {
 		return fmt.Errorf("failed to write message body: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("failed to close data writer: %w", err)
 	}
 
 	return nil
@@ -249,14 +240,57 @@ func (s *Sender) sendWithTLS(to string, body []byte) (err error) {
 
 // sendWithSTARTTLS sends email using STARTTLS (port 587)
 func (s *Sender) sendWithSTARTTLS(to string, body []byte) error {
-	// Set up authentication
-	auth := smtp.PlainAuth("", s.Config.Username, s.Config.Password, s.Config.Host)
-
-	// Send the email
 	addr := fmt.Sprintf("%s:%d", s.Config.Host, s.Config.Port)
-	err := smtp.SendMail(addr, auth, s.Config.From, []string{to}, body)
+
+	// Connect to the SMTP server
+	client, err := smtp.Dial(addr)
 	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
+		return fmt.Errorf("failed to connect to SMTP server: %w", err)
+	}
+	defer client.Quit()
+
+	// Send EHLO
+	if err := client.Hello("localhost"); err != nil {
+		return fmt.Errorf("EHLO failed: %w", err)
+	}
+
+	// Upgrade to TLS
+	tlsConfig := &tls.Config{
+		ServerName:         s.Config.Host,
+		InsecureSkipVerify: s.Config.SkipTLSVerify,
+	}
+	if err := client.StartTLS(tlsConfig); err != nil {
+		return fmt.Errorf("STARTTLS failed: %w", err)
+	}
+
+	// Authenticate
+	auth := smtp.PlainAuth("", s.Config.Username, s.Config.Password, s.Config.Host)
+	if err := client.Auth(auth); err != nil {
+		return fmt.Errorf("SMTP authentication failed: %w", err)
+	}
+
+	// Set sender
+	if err := client.Mail(s.Config.From); err != nil {
+		return fmt.Errorf("failed to set sender: %w", err)
+	}
+
+	// Set recipient
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("failed to set recipient: %w", err)
+	}
+
+	// Send message
+	writer, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("failed to get data writer: %w", err)
+	}
+
+	if _, err := writer.Write(body); err != nil {
+		return fmt.Errorf("failed to write message body: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("failed to close data writer: %w", err)
 	}
 
 	return nil
