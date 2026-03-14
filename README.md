@@ -127,7 +127,12 @@ config := magiclink.DefaultConfig()
 
 ### Development Configuration
 
-- `DevBypassEmailFilePath`: Path to a file containing email addresses that should bypass email sending. This is useful for development and testing purposes. The file should contain one email address per line. If an email address in this file requests a magic link, the link will be returned in the response instead of being sent via email, allowing for easier testing of the authentication flow.
+- `DevBypassEmailFilePath`: Path to a file containing email addresses or wildcard patterns that should bypass email sending. This is useful for development and testing purposes. The file supports:
+  - One email address per line for exact match (e.g., `test@example.com`)
+  - Wildcard patterns using `*`, `?`, `[` (e.g., `*@test.com`, `loadtest-*@example.com`)
+  - Lines starting with `#` are treated as comments
+
+  If an email address in this file requests a magic link, the link will be returned in the response instead of being sent via email, allowing for easier testing of the authentication flow.
 
 ### WebAuthn/Passkey Configuration
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/mail"
+	"path"
 	"sync"
 	"time"
 
@@ -38,7 +39,7 @@ var (
 )
 
 // LoginHandler handles the login request.
-func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error, disableRateLimiting bool) echo.HandlerFunc {
+func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, devBypassPatterns []string, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error, disableRateLimiting bool) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if !disableRateLimiting {
 			// Get the client IP address for rate limiting
@@ -123,8 +124,8 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 			})
 		}
 
-		// Check if the email is in the bypass list
-		if devBypassEmails[req.Email] {
+		// Check if the email is in the bypass list (exact match or wildcard pattern)
+		if isDevBypass(req.Email, devBypassEmails, devBypassPatterns) {
 			// Construct the magic link
 			magicLink := fmt.Sprintf("%s%s?token=%s", serverAddr, verifyURL, token0)
 
@@ -148,4 +149,17 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 			Message: loginSuccessMessage,
 		})
 	}
+}
+
+// isDevBypass checks if the given email matches a bypass entry (exact match or wildcard pattern).
+func isDevBypass(email string, exactMap map[string]bool, patterns []string) bool {
+	if exactMap[email] {
+		return true
+	}
+	for _, pattern := range patterns {
+		if matched, _ := path.Match(pattern, email); matched {
+			return true
+		}
+	}
+	return false
 }

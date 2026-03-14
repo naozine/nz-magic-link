@@ -157,8 +157,9 @@ type MagicLink struct {
 	TokenManager    *token.Manager
 	EmailSender     *email.Sender
 	SessionManager  *session.Manager
-	WebAuthnService *webauthn.Service // WebAuthn service for passkey authentication
-	DevBypassEmails map[string]bool   // Map of email addresses that should bypass email sending
+	WebAuthnService      *webauthn.Service // WebAuthn service for passkey authentication
+	DevBypassEmails      map[string]bool   // Map of email addresses that should bypass email sending
+	DevBypassPatterns    []string          // Wildcard patterns for bypass (e.g., "*@test.com")
 }
 
 // New creates a new MagicLink instance with the provided configuration.
@@ -298,6 +299,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.Config.MaxLoginAttempts,
 		m.Config.RateLimitWindow,
 		m.DevBypassEmails,
+		m.DevBypassPatterns,
 		m.Config.ServerAddr,
 		m.Config.VerifyURL,
 		m.Config.LoginSuccessMessage,
@@ -357,10 +359,11 @@ func (m *MagicLink) Close() error {
 }
 
 // loadDevBypassEmails reads the file at the given path and loads the email addresses into the DevBypassEmails map.
-// Each line in the file should contain a single email address.
+// Each line in the file should contain a single email address or a wildcard pattern (e.g., "*@test.com").
 func (m *MagicLink) loadDevBypassEmails(filePath string) (err error) {
 	// Initialize the map
 	m.DevBypassEmails = make(map[string]bool)
+	m.DevBypassPatterns = nil
 
 	// If no file path is provided, return early
 	if filePath == "" {
@@ -382,15 +385,19 @@ func (m *MagicLink) loadDevBypassEmails(filePath string) (err error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		// Get the line and trim whitespace
-		emailAddr := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(scanner.Text())
 
-		// Skip empty lines
-		if emailAddr == "" {
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
-		// Add the email to the map
-		m.DevBypassEmails[emailAddr] = true
+		// Check if the line contains a wildcard pattern
+		if strings.ContainsAny(line, "*?[") {
+			m.DevBypassPatterns = append(m.DevBypassPatterns, line)
+		} else {
+			m.DevBypassEmails[line] = true
+		}
 	}
 
 	// Check for errors
@@ -400,3 +407,4 @@ func (m *MagicLink) loadDevBypassEmails(filePath string) (err error) {
 
 	return nil
 }
+
