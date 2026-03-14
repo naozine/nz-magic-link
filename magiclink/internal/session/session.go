@@ -59,28 +59,26 @@ func (m *Manager) Create(c echo.Context, userID string) error {
 		return fmt.Errorf("failed to save session: %w", err)
 	}
 
-	// Set the session cookie
-	cookie := &http.Cookie{
-		Name:     m.Config.CookieName,
-		Value:    sessionID,
-		Path:     m.Config.CookiePath,
-		Domain:   m.Config.CookieDomain,
-		Expires:  expiresAt,
-		Secure:   m.Config.CookieSecure,
-		HttpOnly: m.Config.CookieHTTPOnly,
+	m.setCookie(c, sessionID, expiresAt)
+	return nil
+}
+
+// CreateWithTokenUsed atomically marks a token as used and creates a new session in a single transaction.
+func (m *Manager) CreateWithTokenUsed(c echo.Context, userID string, tokenHash string) error {
+	sessionID, err := generateSecureToken(32)
+	if err != nil {
+		return fmt.Errorf("failed to generate session ID: %w", err)
 	}
 
-	// Set SameSite attribute
-	switch m.Config.CookieSameSite {
-	case "strict":
-		cookie.SameSite = http.SameSiteStrictMode
-	case "lax":
-		cookie.SameSite = http.SameSiteLaxMode
-	case "none":
-		cookie.SameSite = http.SameSiteNoneMode
+	sessionHash := hashSession(sessionID)
+	expiresAt := time.Now().Add(m.Config.SessionExpiry)
+
+	err = m.DB.MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHash, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	c.SetCookie(cookie)
+	m.setCookie(c, sessionID, expiresAt)
 	return nil
 }
 
@@ -117,25 +115,7 @@ func (m *Manager) Validate(c echo.Context) (string, bool, error) {
 	// Rolling expiration: extend expiry and update cookie (best-effort)
 	newExpiresAt := now.Add(m.Config.SessionExpiry)
 	if err := m.DB.UpdateSessionExpiry(sessionHash, newExpiresAt); err == nil {
-		updatedCookie := &http.Cookie{
-			Name:     m.Config.CookieName,
-			Value:    cookie.Value,
-			Path:     m.Config.CookiePath,
-			Domain:   m.Config.CookieDomain,
-			Expires:  newExpiresAt,
-			Secure:   m.Config.CookieSecure,
-			HttpOnly: m.Config.CookieHTTPOnly,
-		}
-		// Set SameSite attribute same as on Create
-		switch m.Config.CookieSameSite {
-		case "strict":
-			updatedCookie.SameSite = http.SameSiteStrictMode
-		case "lax":
-			updatedCookie.SameSite = http.SameSiteLaxMode
-		case "none":
-			updatedCookie.SameSite = http.SameSiteNoneMode
-		}
-		c.SetCookie(updatedCookie)
+		m.setCookie(c, cookie.Value, newExpiresAt)
 	}
 
 	return userID, true, nil
@@ -177,6 +157,30 @@ func (m *Manager) Invalidate(c echo.Context) error {
 // CleanupExpired removes expired sessions from the database.
 func (m *Manager) CleanupExpired() error {
 	return m.DB.CleanupExpiredSessions()
+}
+
+// setCookie sets a session cookie on the response.
+func (m *Manager) setCookie(c echo.Context, sessionID string, expiresAt time.Time) {
+	cookie := &http.Cookie{
+		Name:     m.Config.CookieName,
+		Value:    sessionID,
+		Path:     m.Config.CookiePath,
+		Domain:   m.Config.CookieDomain,
+		Expires:  expiresAt,
+		Secure:   m.Config.CookieSecure,
+		HttpOnly: m.Config.CookieHTTPOnly,
+	}
+
+	switch m.Config.CookieSameSite {
+	case "strict":
+		cookie.SameSite = http.SameSiteStrictMode
+	case "lax":
+		cookie.SameSite = http.SameSiteLaxMode
+	case "none":
+		cookie.SameSite = http.SameSiteNoneMode
+	}
+
+	c.SetCookie(cookie)
 }
 
 // generateSecureToken generates a cryptographically secure random token.

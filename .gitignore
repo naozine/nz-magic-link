@@ -9,3 +9,5 @@
 /examples/webauthn-simple/.bypass_emails
 /examples/webauthn-simple/magiclink.db
 /.bypass_emails
+/.env
+/simple

@@ -262,6 +262,50 @@ func (l *LevelDB) CleanupExpiredTokens() error {
 	return nil
 }
 
+// MarkTokenUsedAndCreateSession atomically marks a token as used and creates a session in a single batch write.
+func (l *LevelDB) MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHash, userID string, expiresAt time.Time) error {
+	// Read and update token
+	tokenKey := tokenPrefix + tokenHash
+	data, err := l.db.Get([]byte(tokenKey), nil)
+	if err != nil {
+		return fmt.Errorf("failed to get token for update: %w", err)
+	}
+
+	var tokenData TokenData
+	if err := json.Unmarshal(data, &tokenData); err != nil {
+		return fmt.Errorf("failed to unmarshal token data: %w", err)
+	}
+	tokenData.Used = true
+
+	updatedToken, err := json.Marshal(tokenData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated token data: %w", err)
+	}
+
+	// Prepare session data
+	sd := SessionData{
+		SessionID: sessionID,
+		UserID:    userID,
+		CreatedAt: time.Now(),
+		ExpiresAt: expiresAt,
+	}
+	sessionBytes, err := json.Marshal(sd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal session data: %w", err)
+	}
+
+	// Write both in a single batch
+	batch := new(leveldb.Batch)
+	batch.Put([]byte(tokenKey), updatedToken)
+	batch.Put([]byte(sessionPrefix+sessionHash), sessionBytes)
+
+	if err := l.db.Write(batch, nil); err != nil {
+		return fmt.Errorf("failed to write token and session: %w", err)
+	}
+
+	return nil
+}
+
 // SaveSession saves a session to the database.
 func (l *LevelDB) SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error {
 	sessionData := SessionData{

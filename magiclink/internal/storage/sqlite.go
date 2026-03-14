@@ -217,6 +217,25 @@ func (s *SQLiteDB) CleanupExpiredTokens() error {
 	return nil
 }
 
+// MarkTokenUsedAndCreateSession atomically marks a token as used and creates a session in a single transaction.
+func (s *SQLiteDB) MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHash, userID string, expiresAt time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE tokens SET used = 1 WHERE token_hash = ?`, tokenHash); err != nil {
+		return fmt.Errorf("failed to mark token as used: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO sessions (session_id, session_hash, user_id, expires_at) VALUES (?, ?, ?, ?)`,
+		sessionID, sessionHash, userID, expiresAt); err != nil {
+		return fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // SaveSession saves a session to the database.
 func (s *SQLiteDB) SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error {
 	_, err := s.db.Exec(
