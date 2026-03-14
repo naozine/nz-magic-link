@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 // mockDB is an in-memory implementation of storage.Database for testing.
 type mockDB struct {
+	mu       sync.RWMutex
 	tokens   map[string]mockToken // key: tokenHash
 	sessions map[string]mockSession
 
@@ -59,10 +61,14 @@ func hashTokenLocal(tok string) string {
 func (m *mockDB) Init() error  { return nil }
 func (m *mockDB) Close() error { return nil }
 func (m *mockDB) SaveToken(token, tokenHash, email string, expiresAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.tokens[tokenHash] = mockToken{token: token, email: email, expiresAt: expiresAt}
 	return nil
 }
 func (m *mockDB) GetTokenByHash(tokenHash string) (tokenStr, email string, expiresAt time.Time, used bool, err error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.errGetToken != nil {
 		return "", "", time.Time{}, false, m.errGetToken
 	}
@@ -73,6 +79,8 @@ func (m *mockDB) GetTokenByHash(tokenHash string) (tokenStr, email string, expir
 	return t.token, t.email, t.expiresAt, t.used, nil
 }
 func (m *mockDB) MarkTokenAsUsed(tokenHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.errMarkTokenUsed != nil {
 		return m.errMarkTokenUsed
 	}
@@ -91,6 +99,8 @@ func (m *mockDB) MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHash
 }
 
 func (m *mockDB) SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.errSaveSession != nil {
 		return m.errSaveSession
 	}
@@ -98,16 +108,25 @@ func (m *mockDB) SaveSession(sessionID, sessionHash, userID string, expiresAt ti
 	return nil
 }
 func (m *mockDB) GetSessionByHash(sessionHash string) (sessionID, userID string, expiresAt time.Time, err error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	s, ok := m.sessions[sessionHash]
 	if !ok {
 		return "", "", time.Time{}, nil
 	}
 	return s.sessionID, s.userID, s.expiresAt, nil
 }
-func (m *mockDB) DeleteSession(sessionHash string) error { delete(m.sessions, sessionHash); return nil }
-func (m *mockDB) CleanupExpiredSessions() error          { return nil }
+func (m *mockDB) DeleteSession(sessionHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, sessionHash)
+	return nil
+}
+func (m *mockDB) CleanupExpiredSessions() error { return nil }
 
 func (m *mockDB) UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	s, ok := m.sessions[sessionHash]
 	if !ok {
 		return nil

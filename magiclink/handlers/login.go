@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/mail"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -31,7 +32,10 @@ type ErrorResponse struct {
 }
 
 // rateLimiters stores rate limiters for each IP address.
-var rateLimiters = make(map[string]*rate.Limiter)
+var (
+	rateLimiters   = make(map[string]*rate.Limiter)
+	rateLimitersMu sync.RWMutex
+)
 
 // LoginHandler handles the login request.
 func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error) echo.HandlerFunc {
@@ -40,11 +44,19 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 		ip := c.RealIP()
 
 		// Check global rate limit (per IP)
+		rateLimitersMu.RLock()
 		limiter, exists := rateLimiters[ip]
+		rateLimitersMu.RUnlock()
+
 		if !exists {
-			// Allow 10 requests per minute per IP
-			limiter = rate.NewLimiter(rate.Every(6*time.Second), 10)
-			rateLimiters[ip] = limiter
+			rateLimitersMu.Lock()
+			limiter, exists = rateLimiters[ip]
+			if !exists {
+				// Allow 10 requests per minute per IP
+				limiter = rate.NewLimiter(rate.Every(6*time.Second), 10)
+				rateLimiters[ip] = limiter
+			}
+			rateLimitersMu.Unlock()
 		}
 
 		if !limiter.Allow() {
