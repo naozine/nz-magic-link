@@ -118,6 +118,7 @@ config := magiclink.DefaultConfig()
 
 - `MaxLoginAttempts`: Maximum number of login attempts per email within the window (default: `5`)
 - `RateLimitWindow`: Time window for rate limiting (default: `15 * time.Minute`)
+- `DisableRateLimiting`: Disable all rate limiting — both IP-based and per-email (default: `false`). Useful for testing and benchmarking.
 
 ### Login Customization
 

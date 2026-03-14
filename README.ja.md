@@ -110,6 +110,7 @@ config := magiclink.DefaultConfig()
 
 - `MaxLoginAttempts`: 時間窓内のメールあたりの最大ログイン試行回数（デフォルト: `5`）
 - `RateLimitWindow`: レートリミットの時間窓（デフォルト: `15 * time.Minute`）
+- `DisableRateLimiting`: IP ベースおよびメール別のレートリミットをすべて無効化（デフォルト: `false`）。テストやベンチマーク用。
 
 ### ログインのカスタマイズ
 
