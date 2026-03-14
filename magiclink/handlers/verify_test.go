@@ -83,6 +83,12 @@ func (m *mockDB) MarkTokenAsUsed(tokenHash string) error {
 }
 func (m *mockDB) CountRecentTokens(email string, since time.Time) (int, error) { return 0, nil }
 func (m *mockDB) CleanupExpiredTokens() error                                  { return nil }
+func (m *mockDB) MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHash, userID string, expiresAt time.Time) error {
+	if err := m.MarkTokenAsUsed(tokenHash); err != nil {
+		return err
+	}
+	return m.SaveSession(sessionID, sessionHash, userID, expiresAt)
+}
 
 func (m *mockDB) SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error {
 	if m.errSaveSession != nil {

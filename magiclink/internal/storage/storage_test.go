@@ -1,0 +1,168 @@
+package storage
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// setupSQLite creates a temporary SQLite database for testing.
+func setupSQLite(t *testing.T) *SQLiteDB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := NewSQLiteDB(Config{Path: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Init(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// setupLevelDB creates a temporary LevelDB database for testing.
+func setupLevelDB(t *testing.T) *LevelDB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.leveldb")
+	db, err := NewLevelDB(Config{Path: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func TestMarkTokenUsedAndCreateSession_SQLite(t *testing.T) {
+	db := setupSQLite(t)
+
+	// Save a token
+	tokenHash := "testhash123"
+	err := db.SaveToken("rawtoken", tokenHash, "user@example.com", time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Execute the combined operation
+	expiresAt := time.Now().Add(time.Hour)
+	err = db.MarkTokenUsedAndCreateSession(tokenHash, "sess-id", "sess-hash", "user@example.com", expiresAt)
+	if err != nil {
+		t.Fatalf("MarkTokenUsedAndCreateSession failed: %v", err)
+	}
+
+	// Verify token is marked as used
+	_, _, _, used, err := db.GetTokenByHash(tokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !used {
+		t.Error("expected token to be marked as used")
+	}
+
+	// Verify session was created
+	sessionID, userID, _, err := db.GetSessionByHash("sess-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionID != "sess-id" {
+		t.Errorf("expected session ID 'sess-id', got %q", sessionID)
+	}
+	if userID != "user@example.com" {
+		t.Errorf("expected user ID 'user@example.com', got %q", userID)
+	}
+}
+
+func TestMarkTokenUsedAndCreateSession_SQLite_Atomicity(t *testing.T) {
+	db := setupSQLite(t)
+
+	// Save a token
+	tokenHash := "testhash456"
+	err := db.SaveToken("rawtoken2", tokenHash, "user@example.com", time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-insert a session with the same session_hash to cause a UNIQUE constraint violation
+	err = db.SaveSession("existing-sess", "sess-hash-dup", "other@example.com", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempt the combined operation — session insert should fail due to duplicate session_hash
+	err = db.MarkTokenUsedAndCreateSession(tokenHash, "new-sess", "sess-hash-dup", "user@example.com", time.Now().Add(time.Hour))
+	if err == nil {
+		t.Fatal("expected error due to duplicate session_hash, got nil")
+	}
+
+	// Verify token is NOT marked as used (rollback)
+	_, _, _, used, err := db.GetTokenByHash(tokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used {
+		t.Error("expected token to NOT be marked as used after rollback")
+	}
+}
+
+func TestMarkTokenUsedAndCreateSession_LevelDB(t *testing.T) {
+	db := setupLevelDB(t)
+
+	// Save a token
+	tokenHash := "testhash789"
+	err := db.SaveToken("rawtoken3", tokenHash, "user@example.com", time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Execute the combined operation
+	expiresAt := time.Now().Add(time.Hour)
+	err = db.MarkTokenUsedAndCreateSession(tokenHash, "sess-id-ldb", "sess-hash-ldb", "user@example.com", expiresAt)
+	if err != nil {
+		t.Fatalf("MarkTokenUsedAndCreateSession failed: %v", err)
+	}
+
+	// Verify token is marked as used
+	_, _, _, used, err := db.GetTokenByHash(tokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !used {
+		t.Error("expected token to be marked as used")
+	}
+
+	// Verify session was created
+	sessionID, userID, _, err := db.GetSessionByHash("sess-hash-ldb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionID != "sess-id-ldb" {
+		t.Errorf("expected session ID 'sess-id-ldb', got %q", sessionID)
+	}
+	if userID != "user@example.com" {
+		t.Errorf("expected user ID 'user@example.com', got %q", userID)
+	}
+}
+
+func TestMarkTokenUsedAndCreateSession_LevelDB_NonexistentToken(t *testing.T) {
+	db := setupLevelDB(t)
+
+	// Attempt with a token that doesn't exist
+	err := db.MarkTokenUsedAndCreateSession("nonexistent", "sess-id", "sess-hash", "user@example.com", time.Now().Add(time.Hour))
+	if err == nil {
+		t.Fatal("expected error for nonexistent token, got nil")
+	}
+
+	// Verify session was NOT created
+	sessionID, _, _, err := db.GetSessionByHash("sess-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionID != "" {
+		t.Error("expected no session to be created for nonexistent token")
+	}
+}
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}

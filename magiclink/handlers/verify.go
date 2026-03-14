@@ -39,8 +39,8 @@ func VerifyHandler(tokenManager *token.Manager, sessionManager *session.Manager,
 			return c.JSON(httpStatus, ErrorResponse{Error: desc})
 		}
 
-		// Validate the token
-		email, err := tokenManager.Validate(tokenValue)
+		// Validate the token (without marking as used)
+		email, tokenHash, err := tokenManager.ValidateOnly(tokenValue)
 		if err != nil {
 			code, httpStatus, desc := mapError(err.Error())
 			if effectiveErrorRedirect != "" {
@@ -49,9 +49,9 @@ func VerifyHandler(tokenManager *token.Manager, sessionManager *session.Manager,
 			return c.JSON(httpStatus, ErrorResponse{Error: desc})
 		}
 
-		// Create a session for the user
-		if err := sessionManager.Create(c, email); err != nil {
-			code, httpStatus, desc := mapError("Failed to create session")
+		// Mark token as used and create session atomically
+		if err := sessionManager.CreateWithTokenUsed(c, email, tokenHash); err != nil {
+			code, httpStatus, desc := mapError(err.Error())
 			if effectiveErrorRedirect != "" {
 				return c.Redirect(http.StatusFound, buildErrorRedirectURL(effectiveErrorRedirect, code, desc, httpStatus))
 			}

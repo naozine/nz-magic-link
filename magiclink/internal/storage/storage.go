@@ -47,6 +47,9 @@ type Database interface {
 	CountRecentTokens(email string, since time.Time) (int, error)
 	CleanupExpiredTokens() error
 
+	// Combined operations
+	MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHash, userID string, expiresAt time.Time) error
+
 	// Session operations
 	SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error
 	GetSessionByHash(sessionHash string) (sessionID, userID string, expiresAt time.Time, err error)

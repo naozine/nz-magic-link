@@ -84,6 +84,32 @@ func (m *Manager) Validate(token string) (string, error) {
 	return email, nil
 }
 
+// ValidateOnly checks if a token is valid and returns the associated email and token hash.
+// Unlike Validate, it does NOT mark the token as used. The caller is responsible for
+// marking the token as used (e.g., via MarkTokenUsedAndCreateSession).
+func (m *Manager) ValidateOnly(token string) (email string, tokenHash string, err error) {
+	tokenHash = hashToken(token)
+
+	storedToken, email, expiresAt, used, err := m.DB.GetTokenByHash(tokenHash)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get token: %w", err)
+	}
+
+	if storedToken == "" {
+		return "", "", fmt.Errorf("invalid token")
+	}
+
+	if time.Now().After(expiresAt) {
+		return "", "", fmt.Errorf("token has expired")
+	}
+
+	if used {
+		return "", "", fmt.Errorf("token has already been used")
+	}
+
+	return email, tokenHash, nil
+}
+
 // CheckRateLimit checks if the user has exceeded the rate limit for token generation.
 func (m *Manager) CheckRateLimit(email string, maxAttempts int, window time.Duration) (bool, error) {
 	// Calculate the time window
