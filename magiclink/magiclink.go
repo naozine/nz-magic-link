@@ -80,6 +80,12 @@ type Config struct {
 	// If it returns an error, the login process is aborted and the error message is returned to the user.
 	AllowLogin func(c echo.Context, email string) error
 
+	// Token storage
+	// UseInMemoryTokens enables in-memory token storage for high-concurrency scenarios.
+	// Tokens are stored in memory instead of the database. Sessions still use the database.
+	// If the process restarts, pending tokens are lost (users simply re-request login).
+	UseInMemoryTokens bool
+
 	// Rate limiting
 	MaxLoginAttempts int
 	RateLimitWindow  time.Duration
@@ -197,6 +203,11 @@ func newMagicLink(config Config, database storage.Database) (*MagicLink, error) 
 	// Initialize the database schema
 	if err := database.Init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
+	}
+
+	// Wrap with in-memory token store if enabled
+	if config.UseInMemoryTokens {
+		database = storage.NewMemoryTokenStore(database, 5*time.Minute)
 	}
 
 	// Initialize the token manager
