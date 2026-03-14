@@ -94,7 +94,7 @@ config := magiclink.DefaultConfig()
 ### Token Configuration
 
 - `TokenExpiry`: How long tokens are valid for (default: `30 * time.Minute`)
-- `UseInMemoryTokens`: Store tokens in memory instead of the database for high-concurrency scenarios (default: `false`). Sessions still use the database. See [In-Memory Token Storage](#in-memory-token-storage) for details.
+- `UseInMemoryTokens`: Store tokens in memory instead of the database for high-concurrency scenarios (default: `true`). Sessions still use the database. See [In-Memory Token Storage](#in-memory-token-storage) for details.
 
 ### Session Configuration
 

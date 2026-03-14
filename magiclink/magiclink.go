@@ -114,6 +114,7 @@ func DefaultConfig() Config {
 		SMTPUseTLS:             false,
 		SMTPSkipVerify:         false,
 		DevBypassEmailFilePath: "", // Empty by default
+		UseInMemoryTokens:     true,
 		TokenExpiry:            30 * time.Minute,
 		SessionExpiry:          7 * 24 * time.Hour, // 7 days
 		CookieName:             "session",
