@@ -87,8 +87,9 @@ type Config struct {
 	UseInMemoryTokens bool
 
 	// Rate limiting
-	MaxLoginAttempts int
-	RateLimitWindow  time.Duration
+	MaxLoginAttempts    int
+	RateLimitWindow     time.Duration
+	DisableRateLimiting bool // Disable all rate limiting (for testing/benchmarking)
 
 	// WebAuthn/Passkey configuration
 	WebAuthnRPID               string        `json:"webauthn_rp_id"`
@@ -301,6 +302,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.Config.VerifyURL,
 		m.Config.LoginSuccessMessage,
 		m.Config.AllowLogin,
+		m.Config.DisableRateLimiting,
 	))
 
 	e.GET(m.Config.VerifyURL, handlers.VerifyHandler(

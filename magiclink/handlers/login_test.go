@@ -30,6 +30,7 @@ func TestLoginHandler_ConcurrentAccess_RateLimiter(t *testing.T) {
 		"/auth/verify",
 		"Magic link sent",
 		nil,
+		false, // disableRateLimiting
 	)
 
 	e := echo.New()

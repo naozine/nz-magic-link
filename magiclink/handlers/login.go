@@ -38,31 +38,33 @@ var (
 )
 
 // LoginHandler handles the login request.
-func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error) echo.HandlerFunc {
+func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error, disableRateLimiting bool) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// Get the client IP address for rate limiting
-		ip := c.RealIP()
+		if !disableRateLimiting {
+			// Get the client IP address for rate limiting
+			ip := c.RealIP()
 
-		// Check global rate limit (per IP)
-		rateLimitersMu.RLock()
-		limiter, exists := rateLimiters[ip]
-		rateLimitersMu.RUnlock()
+			// Check global rate limit (per IP)
+			rateLimitersMu.RLock()
+			limiter, exists := rateLimiters[ip]
+			rateLimitersMu.RUnlock()
 
-		if !exists {
-			rateLimitersMu.Lock()
-			limiter, exists = rateLimiters[ip]
 			if !exists {
-				// Allow 10 requests per minute per IP
-				limiter = rate.NewLimiter(rate.Every(6*time.Second), 10)
-				rateLimiters[ip] = limiter
+				rateLimitersMu.Lock()
+				limiter, exists = rateLimiters[ip]
+				if !exists {
+					// Allow 10 requests per minute per IP
+					limiter = rate.NewLimiter(rate.Every(6*time.Second), 10)
+					rateLimiters[ip] = limiter
+				}
+				rateLimitersMu.Unlock()
 			}
-			rateLimitersMu.Unlock()
-		}
 
-		if !limiter.Allow() {
-			return c.JSON(http.StatusTooManyRequests, ErrorResponse{
-				Error: "Too many requests. Please try again later.",
-			})
+			if !limiter.Allow() {
+				return c.JSON(http.StatusTooManyRequests, ErrorResponse{
+					Error: "Too many requests. Please try again later.",
+				})
+			}
 		}
 
 		// Parse the request body
@@ -97,18 +99,20 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 			}
 		}
 
-		// Check user-specific rate limit
-		exceeded, err := tokenManager.CheckRateLimit(req.Email, maxAttempts, window)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
-				Error: "Failed to check rate limit",
-			})
-		}
+		if !disableRateLimiting {
+			// Check user-specific rate limit
+			exceeded, err := tokenManager.CheckRateLimit(req.Email, maxAttempts, window)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{
+					Error: "Failed to check rate limit",
+				})
+			}
 
-		if exceeded {
-			return c.JSON(http.StatusTooManyRequests, ErrorResponse{
-				Error: fmt.Sprintf("Too many login attempts. Please try again after %d minutes.", int(window.Minutes())),
-			})
+			if exceeded {
+				return c.JSON(http.StatusTooManyRequests, ErrorResponse{
+					Error: fmt.Sprintf("Too many login attempts. Please try again after %d minutes.", int(window.Minutes())),
+				})
+			}
 		}
 
 		// Generate a token
