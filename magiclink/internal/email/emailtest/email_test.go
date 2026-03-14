@@ -1,4 +1,4 @@
-package email
+package email_test
 
 import (
 	"crypto/ecdsa"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
+	"github.com/naozine/nz-magic-link/magiclink/internal/email"
 )
 
 // receivedMessage holds the captured email data from the test SMTP server.
@@ -155,7 +156,7 @@ func TestSendMagicLink_TLS(t *testing.T) {
 	addr, backend := startTestSMTPServer(t, tlsConfig, true)
 	host, port := splitHostPort(t, addr)
 
-	sender := New(Config{
+	sender := email.New(email.Config{
 		Host:          host,
 		Port:          port,
 		Username:      "testuser",
@@ -206,7 +207,7 @@ func TestSendMagicLink_STARTTLS(t *testing.T) {
 	addr, backend := startTestSMTPServer(t, tlsConfig, false)
 	_, port := splitHostPort(t, addr)
 
-	sender := New(Config{
+	sender := email.New(email.Config{
 		Host:          "localhost",
 		Port:          port,
 		Username:      "testuser",
@@ -251,7 +252,7 @@ func TestSendMagicLink_TLS_AuthFailure(t *testing.T) {
 	addr, _ := startTestSMTPServer(t, tlsConfig, true)
 	host, port := splitHostPort(t, addr)
 
-	sender := New(Config{
+	sender := email.New(email.Config{
 		Host:          host,
 		Port:          port,
 		Username:      "testuser",
@@ -282,7 +283,7 @@ func TestSendMagicLink_NonASCII(t *testing.T) {
 	addr, backend := startTestSMTPServer(t, tlsConfig, true)
 	host, port := splitHostPort(t, addr)
 
-	sender := New(Config{
+	sender := email.New(email.Config{
 		Host:          host,
 		Port:          port,
 		Username:      "testuser",
@@ -320,7 +321,7 @@ func TestSendMagicLink_CustomTemplate(t *testing.T) {
 	addr, backend := startTestSMTPServer(t, tlsConfig, true)
 	host, port := splitHostPort(t, addr)
 
-	sender := New(Config{
+	sender := email.New(email.Config{
 		Host:          host,
 		Port:          port,
 		Username:      "testuser",
@@ -334,7 +335,7 @@ func TestSendMagicLink_CustomTemplate(t *testing.T) {
 	})
 
 	type CustomData struct {
-		BaseTemplateData
+		email.BaseTemplateData
 		AppName string
 	}
 

@@ -3,8 +3,6 @@ module github.com/naozine/nz-magic-link
 go 1.24.0
 
 require (
-	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
-	github.com/emersion/go-smtp v0.24.0
 	github.com/go-webauthn/webauthn v0.15.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/labstack/gommon v0.4.2
