@@ -163,6 +163,161 @@ func TestMarkTokenUsedAndCreateSession_LevelDB_NonexistentToken(t *testing.T) {
 	}
 }
 
+func TestPasskeyCredential_BackupFlags_SQLite(t *testing.T) {
+	db := setupSQLite(t)
+
+	now := time.Now()
+	cred := &PasskeyCredential{
+		ID:              "cred-1",
+		UserID:          "user@example.com",
+		PublicKey:       []byte("pubkey"),
+		SignCount:       0,
+		AAGUID:          "aaguid",
+		AttestationType: "none",
+		Transports:      []string{"internal"},
+		BackupEligible:  true,
+		BackupState:     true,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+
+	if err := db.SavePasskeyCredential(cred); err != nil {
+		t.Fatal(err)
+	}
+
+	// GetPasskeyCredentialByID
+	got, err := db.GetPasskeyCredentialByID("cred-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.BackupEligible {
+		t.Error("expected BackupEligible to be true")
+	}
+	if !got.BackupState {
+		t.Error("expected BackupState to be true")
+	}
+
+	// GetPasskeyCredentialsByUserID
+	creds, err := db.GetPasskeyCredentialsByUserID("user@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(creds) != 1 {
+		t.Fatalf("expected 1 credential, got %d", len(creds))
+	}
+	if !creds[0].BackupEligible {
+		t.Error("expected BackupEligible to be true")
+	}
+	if !creds[0].BackupState {
+		t.Error("expected BackupState to be true")
+	}
+}
+
+func TestPasskeyCredential_BackupFlags_Default_SQLite(t *testing.T) {
+	db := setupSQLite(t)
+
+	now := time.Now()
+	cred := &PasskeyCredential{
+		ID:              "cred-2",
+		UserID:          "user@example.com",
+		PublicKey:       []byte("pubkey"),
+		SignCount:       0,
+		AAGUID:          "aaguid",
+		AttestationType: "none",
+		Transports:      []string{"internal"},
+		// BackupEligible and BackupState not set (default false)
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := db.SavePasskeyCredential(cred); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetPasskeyCredentialByID("cred-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BackupEligible {
+		t.Error("expected BackupEligible to be false by default")
+	}
+	if got.BackupState {
+		t.Error("expected BackupState to be false by default")
+	}
+}
+
+func TestPasskeyCredential_BackupFlags_LevelDB(t *testing.T) {
+	db := setupLevelDB(t)
+
+	now := time.Now()
+	cred := &PasskeyCredential{
+		ID:              "cred-1",
+		UserID:          "user@example.com",
+		PublicKey:       []byte("pubkey"),
+		SignCount:       0,
+		AAGUID:          "aaguid",
+		AttestationType: "none",
+		Transports:      []string{"internal"},
+		BackupEligible:  true,
+		BackupState:     false,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+
+	if err := db.SavePasskeyCredential(cred); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetPasskeyCredentialByID("cred-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.BackupEligible {
+		t.Error("expected BackupEligible to be true")
+	}
+	if got.BackupState {
+		t.Error("expected BackupState to be false")
+	}
+}
+
+func TestPasskeyCredential_Migration_SQLite(t *testing.T) {
+	// Simulate an existing DB without backup columns by calling Init twice
+	db := setupSQLite(t)
+
+	// Init should be idempotent — calling it again should not fail
+	if err := db.Init(); err != nil {
+		t.Fatalf("second Init() failed: %v", err)
+	}
+
+	// Save and retrieve a credential to verify columns work after migration
+	now := time.Now()
+	cred := &PasskeyCredential{
+		ID:              "cred-migrate",
+		UserID:          "user@example.com",
+		PublicKey:       []byte("pubkey"),
+		SignCount:       0,
+		AAGUID:          "aaguid",
+		AttestationType: "none",
+		Transports:      []string{"internal"},
+		BackupEligible:  true,
+		BackupState:     true,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+
+	if err := db.SavePasskeyCredential(cred); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetPasskeyCredentialByID("cred-migrate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.BackupEligible || !got.BackupState {
+		t.Error("expected backup flags to be preserved after migration")
+	}
+}
+
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }

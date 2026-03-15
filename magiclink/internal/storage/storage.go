@@ -16,6 +16,8 @@ type PasskeyCredential struct {
 	AAGUID          string    `json:"aaguid,omitempty"` // 認証器AAGUID（任意）
 	AttestationType string    `json:"attestation_type"` // attestation形式
 	Transports      []string  `json:"transports"`       // サポートされる転送方式
+	BackupEligible  bool      `json:"backup_eligible"`  // パスキーがクラウド同期可能か
+	BackupState     bool      `json:"backup_state"`     // パスキーが実際にバックアップされているか
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

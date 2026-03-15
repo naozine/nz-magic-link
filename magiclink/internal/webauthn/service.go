@@ -189,6 +189,8 @@ func (s *Service) FinishRegistration(challengeID string, response *protocol.Pars
 		AAGUID:          base64.RawURLEncoding.EncodeToString(credential.Authenticator.AAGUID),
 		AttestationType: credential.AttestationType,
 		Transports:      transportStrings(credential.Transport),
+		BackupEligible:  credential.Flags.BackupEligible,
+		BackupState:     credential.Flags.BackupState,
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
@@ -400,6 +402,10 @@ func (s *Service) getWebAuthnCredentials(userID string) ([]webauthn.Credential, 
 				AAGUID:    aaguid,
 			},
 			Transport: transportProtocols(cred.Transports),
+			Flags: webauthn.CredentialFlags{
+				BackupEligible: cred.BackupEligible,
+				BackupState:    cred.BackupState,
+			},
 		})
 	}
 

@@ -126,6 +126,10 @@ func (s *SQLiteDB) Init() error {
 		return fmt.Errorf("failed to create passkey_challenges table: %w", err)
 	}
 
+	// Migrate: add backup flags to passkey_credentials (idempotent, ignore "duplicate column" errors)
+	s.db.Exec(`ALTER TABLE passkey_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE passkey_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0`)
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_token_hash ON tokens(token_hash)`,
@@ -295,10 +299,10 @@ func (s *SQLiteDB) SavePasskeyCredential(cred *PasskeyCredential) error {
 
 	_, err = s.db.Exec(`
 		INSERT INTO passkey_credentials
-		(id, user_id, public_key, sign_count, aaguid, attestation_type, transports, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, user_id, public_key, sign_count, aaguid, attestation_type, transports, backup_eligible, backup_state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount, cred.AAGUID,
-		cred.AttestationType, string(transportsJSON), cred.CreatedAt, cred.UpdatedAt,
+		cred.AttestationType, string(transportsJSON), cred.BackupEligible, cred.BackupState, cred.CreatedAt, cred.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save passkey credential: %w", err)
@@ -312,11 +316,11 @@ func (s *SQLiteDB) GetPasskeyCredentialByID(credentialID string) (*PasskeyCreden
 	var transportsJSON string
 
 	err := s.db.QueryRow(`
-		SELECT id, user_id, public_key, sign_count, aaguid, attestation_type, transports, created_at, updated_at
+		SELECT id, user_id, public_key, sign_count, aaguid, attestation_type, transports, backup_eligible, backup_state, created_at, updated_at
 		FROM passkey_credentials WHERE id = ?`,
 		credentialID,
 	).Scan(&cred.ID, &cred.UserID, &cred.PublicKey, &cred.SignCount, &cred.AAGUID,
-		&cred.AttestationType, &transportsJSON, &cred.CreatedAt, &cred.UpdatedAt)
+		&cred.AttestationType, &transportsJSON, &cred.BackupEligible, &cred.BackupState, &cred.CreatedAt, &cred.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -335,7 +339,7 @@ func (s *SQLiteDB) GetPasskeyCredentialByID(credentialID string) (*PasskeyCreden
 // GetPasskeyCredentialsByUserID retrieves all passkey credentials for a user.
 func (s *SQLiteDB) GetPasskeyCredentialsByUserID(userID string) ([]*PasskeyCredential, error) {
 	rows, err := s.db.Query(`
-		SELECT id, user_id, public_key, sign_count, aaguid, attestation_type, transports, created_at, updated_at
+		SELECT id, user_id, public_key, sign_count, aaguid, attestation_type, transports, backup_eligible, backup_state, created_at, updated_at
 		FROM passkey_credentials WHERE user_id = ? ORDER BY created_at DESC`,
 		userID,
 	)
@@ -350,7 +354,7 @@ func (s *SQLiteDB) GetPasskeyCredentialsByUserID(userID string) ([]*PasskeyCrede
 		var transportsJSON string
 
 		err := rows.Scan(&cred.ID, &cred.UserID, &cred.PublicKey, &cred.SignCount, &cred.AAGUID,
-			&cred.AttestationType, &transportsJSON, &cred.CreatedAt, &cred.UpdatedAt)
+			&cred.AttestationType, &transportsJSON, &cred.BackupEligible, &cred.BackupState, &cred.CreatedAt, &cred.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan passkey credential: %w", err)
 		}
