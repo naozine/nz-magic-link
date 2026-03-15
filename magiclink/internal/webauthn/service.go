@@ -2,13 +2,11 @@
 package webauthn
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -46,8 +44,6 @@ func NewService(config Config, db storage.Database) (*Service, error) {
 			RequireResidentKey: &config.RequireResidentKey,
 			ResidentKey:        protocol.ResidentKeyRequirementRequired,
 		},
-		// Enable debug mode for development
-		Debug: true,
 	}
 
 	wan, err := webauthn.New(wconfig)
@@ -92,12 +88,9 @@ func (u *User) WebAuthnIcon() string {
 
 // CreateUser creates a WebAuthn user from email
 func (s *Service) CreateUser(email string) (*User, error) {
-	// Generate a stable user ID from email
-	// Use a hash of the email to create a consistent byte array
 	h := sha256.Sum256([]byte(email))
 	userID := h[:]
 
-	// Get existing credentials for the user
 	credentials, err := s.getWebAuthnCredentials(email)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user credentials: %w", err)
@@ -113,33 +106,38 @@ func (s *Service) CreateUser(email string) (*User, error) {
 
 // BeginRegistration starts passkey registration (mediated)
 func (s *Service) BeginRegistration(email string) (*protocol.CredentialCreation, string, error) {
-	// Create or get user
 	user, err := s.CreateUser(email)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// Begin registration with WebAuthn
 	creation, sessionData, err := s.webauthn.BeginRegistration(user)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to begin registration: %w", err)
 	}
 
-	// Generate challenge ID
 	challengeID, err := s.generateChallengeID()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate challenge ID: %w", err)
 	}
 
-	// Store challenge in database
+	sessionJSON, err := s.encodeSessionData(sessionData)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode session data: %w", err)
+	}
+	optionsJSON, err := s.encodeCreationOptions(creation)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode creation options: %w", err)
+	}
+
 	challenge := &storage.PasskeyChallenge{
 		ID:                     challengeID,
 		UserID:                 email,
 		Type:                   "attestation",
 		Challenge:              sessionData.Challenge,
 		ExpiresAt:              time.Now().Add(s.config.ChallengeTTL),
-		SessionDataJSON:        s.encodeSessionData(sessionData),
-		RequestOptionsSnapshot: s.encodeCreationOptions(creation),
+		SessionDataJSON:        sessionJSON,
+		RequestOptionsSnapshot: optionsJSON,
 	}
 
 	if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
@@ -151,42 +149,38 @@ func (s *Service) BeginRegistration(email string) (*protocol.CredentialCreation,
 
 // FinishRegistration completes passkey registration
 func (s *Service) FinishRegistration(challengeID string, response *protocol.ParsedCredentialCreationData) error {
-	// Get challenge from database
 	challenge, err := s.storage.GetPasskeyChallenge(challengeID)
 	if err != nil {
 		return fmt.Errorf("failed to get challenge: %w", err)
 	}
+	if challenge == nil {
+		return fmt.Errorf("challenge not found: %s", challengeID)
+	}
 
-	// Check if challenge is expired
 	if time.Now().After(challenge.ExpiresAt) {
-		s.storage.DeletePasskeyChallenge(challengeID) // Clean up expired challenge
+		_ = s.storage.DeletePasskeyChallenge(challengeID)
 		return fmt.Errorf("challenge has expired")
 	}
 
-	// Check challenge type
 	if challenge.Type != "attestation" {
 		return fmt.Errorf("invalid challenge type for registration: %s", challenge.Type)
 	}
 
-	// Decode session data from JSON
 	var sessionData webauthn.SessionData
 	if err := json.Unmarshal([]byte(challenge.SessionDataJSON), &sessionData); err != nil {
 		return fmt.Errorf("failed to decode session data: %w", err)
 	}
 
-	// Create user for verification
 	user, err := s.CreateUser(challenge.UserID)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// Use WebAuthn library to create credential from parsed response
 	credential, err := s.webauthn.CreateCredential(user, sessionData, response)
 	if err != nil {
 		return fmt.Errorf("failed to create credential: %w", err)
 	}
 
-	// Store credential in database
 	storedCred := &storage.PasskeyCredential{
 		ID:              base64.RawURLEncoding.EncodeToString(credential.ID),
 		UserID:          challenge.UserID,
@@ -203,77 +197,53 @@ func (s *Service) FinishRegistration(challengeID string, response *protocol.Pars
 		return fmt.Errorf("failed to save credential: %w", err)
 	}
 
-	// Log the saved credential details
-	fmt.Printf("✓ Passkey credential saved successfully:\n")
-	fmt.Printf("  - Credential ID: %s\n", storedCred.ID)
-	fmt.Printf("  - User ID: %s\n", storedCred.UserID)
-	fmt.Printf("  - Sign Count: %d\n", storedCred.SignCount)
-	fmt.Printf("  - AAGUID: %s\n", storedCred.AAGUID)
-	fmt.Printf("  - Attestation Type: %s\n", storedCred.AttestationType)
-	fmt.Printf("  - Transports: %v\n", storedCred.Transports)
-	fmt.Printf("  - Created At: %s\n", storedCred.CreatedAt.Format("2006-01-02 15:04:05"))
-
-	// Clean up challenge
-	if err := s.storage.DeletePasskeyChallenge(challengeID); err != nil {
-		// Log but don't fail the operation
-		fmt.Printf("Warning: failed to delete challenge %s: %v\n", challengeID, err)
-	}
+	_ = s.storage.DeletePasskeyChallenge(challengeID)
 
 	return nil
 }
 
 // BeginLogin starts passkey authentication
 func (s *Service) BeginLogin(email string) (*protocol.CredentialAssertion, string, error) {
-	// Create or get user
 	user, err := s.CreateUser(email)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// Check if user has any credentials
 	if len(user.credentials) == 0 {
 		return nil, "", fmt.Errorf("no passkey credentials found for user %s", email)
 	}
 
-	// Begin login with WebAuthn
 	assertion, sessionData, err := s.webauthn.BeginLogin(user)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to begin login: %w", err)
 	}
 
-	// Generate challenge ID
 	challengeID, err := s.generateChallengeID()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate challenge ID: %w", err)
 	}
 
-	// Store challenge in database
+	sessionJSON, err := s.encodeSessionData(sessionData)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode session data: %w", err)
+	}
+	optionsJSON, err := s.encodeAssertionOptions(assertion)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode assertion options: %w", err)
+	}
+
 	challenge := &storage.PasskeyChallenge{
 		ID:                     challengeID,
 		UserID:                 email,
 		Type:                   "assertion",
 		Challenge:              sessionData.Challenge,
 		ExpiresAt:              time.Now().Add(s.config.ChallengeTTL),
-		SessionDataJSON:        s.encodeSessionData(sessionData),
-		RequestOptionsSnapshot: s.encodeAssertionOptions(assertion),
+		SessionDataJSON:        sessionJSON,
+		RequestOptionsSnapshot: optionsJSON,
 	}
 
 	if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
 		return nil, "", fmt.Errorf("failed to save challenge: %w", err)
-	}
-
-	fmt.Printf("✓ Passkey login challenge created:\n")
-	fmt.Printf("  - Challenge ID: %s\n", challengeID)
-	fmt.Printf("  - User ID: %s\n", email)
-	fmt.Printf("  - Credentials found: %d\n", len(user.credentials))
-
-	// Debug: Log the assertion options for troubleshooting
-	if assertion != nil && len(assertion.Response.AllowedCredentials) > 0 {
-		fmt.Printf("  - AllowedCredentials:\n")
-		for i, cred := range assertion.Response.AllowedCredentials {
-			fmt.Printf("    [%d] ID length: %d bytes, Type: %s, Transports: %v\n",
-				i, len(cred.CredentialID), cred.Type, cred.Transport)
-		}
 	}
 
 	return assertion, challengeID, nil
@@ -281,61 +251,61 @@ func (s *Service) BeginLogin(email string) (*protocol.CredentialAssertion, strin
 
 // BeginDiscoverableLogin starts discoverable (userless) authentication
 func (s *Service) BeginDiscoverableLogin() (*protocol.CredentialAssertion, string, error) {
-	// Begin discoverable login with WebAuthn (no user parameter needed)
 	assertion, sessionData, err := s.webauthn.BeginDiscoverableLogin()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to begin discoverable login: %w", err)
 	}
 
-	// Generate challenge ID
 	challengeID, err := s.generateChallengeID()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate challenge ID: %w", err)
 	}
 
-	// Store challenge in database with empty user ID (will be filled during finish)
+	sessionJSON, err := s.encodeSessionData(sessionData)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode session data: %w", err)
+	}
+	optionsJSON, err := s.encodeAssertionOptions(assertion)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode assertion options: %w", err)
+	}
+
 	challenge := &storage.PasskeyChallenge{
 		ID:                     challengeID,
-		UserID:                 "", // Unknown until authentication completes
+		UserID:                 "",
 		Type:                   "assertion",
 		Challenge:              sessionData.Challenge,
 		ExpiresAt:              time.Now().Add(s.config.ChallengeTTL),
-		SessionDataJSON:        s.encodeSessionData(sessionData),
-		RequestOptionsSnapshot: s.encodeAssertionOptions(assertion),
+		SessionDataJSON:        sessionJSON,
+		RequestOptionsSnapshot: optionsJSON,
 	}
 
 	if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
 		return nil, "", fmt.Errorf("failed to save challenge: %w", err)
 	}
 
-	fmt.Printf("✓ Discoverable login challenge created:\n")
-	fmt.Printf("  - Challenge ID: %s\n", challengeID)
-	fmt.Printf("  - Type: %s\n", challenge.Type)
-	fmt.Printf("  - User verification: %s\n", assertion.Response.UserVerification)
-
 	return assertion, challengeID, nil
 }
 
 // FinishLogin completes passkey authentication
 func (s *Service) FinishLogin(challengeID string, response *protocol.ParsedCredentialAssertionData) (string, error) {
-	// Get challenge from database
 	challenge, err := s.storage.GetPasskeyChallenge(challengeID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get challenge: %w", err)
 	}
+	if challenge == nil {
+		return "", fmt.Errorf("challenge not found: %s", challengeID)
+	}
 
-	// Check if challenge is expired
 	if time.Now().After(challenge.ExpiresAt) {
-		s.storage.DeletePasskeyChallenge(challengeID) // Clean up expired challenge
+		_ = s.storage.DeletePasskeyChallenge(challengeID)
 		return "", fmt.Errorf("challenge has expired")
 	}
 
-	// Check challenge type
 	if challenge.Type != "assertion" {
 		return "", fmt.Errorf("invalid challenge type for login: %s", challenge.Type)
 	}
 
-	// Decode session data from JSON
 	var sessionData webauthn.SessionData
 	if err := json.Unmarshal([]byte(challenge.SessionDataJSON), &sessionData); err != nil {
 		return "", fmt.Errorf("failed to decode session data: %w", err)
@@ -343,119 +313,53 @@ func (s *Service) FinishLogin(challengeID string, response *protocol.ParsedCrede
 
 	var user *User
 
-	// Handle discoverable login (empty UserID in challenge)
 	if challenge.UserID == "" {
-		fmt.Printf("Debug: Processing discoverable login - finding user by credential ID\n")
-
-		// Find user by credential ID for discoverable login
+		// Discoverable login: find user by credential ID
 		userID, err := s.findUserByCredentialID(response.RawID)
 		if err != nil {
 			return "", fmt.Errorf("failed to find user for discoverable login: %w", err)
 		}
 
-		fmt.Printf("Debug: Found user %s for discoverable login\n", userID)
-
-		// Update challenge with discovered user ID
 		challenge.UserID = userID
-		if err := s.storage.SavePasskeyChallenge(challenge); err != nil {
-			fmt.Printf("Warning: failed to update challenge with user ID: %v\n", err)
-		}
+		_ = s.storage.SavePasskeyChallenge(challenge)
 
 		user, err = s.CreateUser(userID)
 		if err != nil {
 			return "", fmt.Errorf("failed to create user: %w", err)
 		}
 	} else {
-		// Regular login with known user ID
 		user, err = s.CreateUser(challenge.UserID)
 		if err != nil {
 			return "", fmt.Errorf("failed to create user: %w", err)
 		}
 	}
 
-	// Check if user has any credentials
 	if len(user.credentials) == 0 {
 		return "", fmt.Errorf("no passkey credentials found for user %s", challenge.UserID)
 	}
 
-	// Log detailed information for debugging
-	fmt.Printf("Debug: ValidateLogin - User has %d credentials\n", len(user.credentials))
-	fmt.Printf("Debug: Session challenge: %s\n", sessionData.Challenge)
-	fmt.Printf("Debug: Response credential ID length: %d\n", len(response.RawID))
-
-	// Use WebAuthn library to validate credential
 	credential, err := s.webauthn.ValidateLogin(user, sessionData, response)
 	if err != nil {
-		// Check for common WebAuthn validation issues that can be safely bypassed in development
-		shouldBypass := false
-		var bypassReason string
-
-		if strings.Contains(err.Error(), "Backup Eligible flag inconsistency") {
-			shouldBypass = true
-			bypassReason = "Backup Eligible flag inconsistency"
-		} else if strings.Contains(err.Error(), "ID mismatch for User and Session") {
-			shouldBypass = true
-			bypassReason = "User ID mismatch (discoverable login)"
-		}
-
-		if shouldBypass {
-			fmt.Printf("Warning: Bypassing WebAuthn validation error for development: %s\n", bypassReason)
-			// Find the credential that matches the response
-			for _, storedCred := range user.credentials {
-				if bytes.Equal(storedCred.ID, response.RawID) {
-					fmt.Printf("Debug: Found matching credential, proceeding with manual validation\n")
-					// Return the stored credential for sign count update
-					credential = &webauthn.Credential{
-						ID:        storedCred.ID,
-						PublicKey: storedCred.PublicKey,
-						Authenticator: webauthn.Authenticator{
-							SignCount: storedCred.Authenticator.SignCount + 1, // Increment sign count
-							AAGUID:    storedCred.Authenticator.AAGUID,
-						},
-					}
-					break
-				}
-			}
-			if credential == nil {
-				return "", fmt.Errorf("no matching credential found for response ID")
-			}
-		} else {
-			fmt.Printf("Debug: ValidateLogin error details: %v\n", err)
-			return "", fmt.Errorf("failed to validate login: %w", err)
-		}
+		return "", fmt.Errorf("failed to validate login: %w", err)
 	}
-
-	fmt.Printf("Debug: ValidateLogin successful - Credential ID: %s\n", base64.RawURLEncoding.EncodeToString(credential.ID))
 
 	// Update credential sign count
 	credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
-	if err := s.storage.UpdatePasskeyCredentialSignCount(credentialID, credential.Authenticator.SignCount); err != nil {
-		// Log but don't fail the operation
-		fmt.Printf("Warning: failed to update sign count for credential %s: %v\n", credentialID, err)
-	}
+	_ = s.storage.UpdatePasskeyCredentialSignCount(credentialID, credential.Authenticator.SignCount)
 
-	// Clean up challenge
-	if err := s.storage.DeletePasskeyChallenge(challengeID); err != nil {
-		// Log but don't fail the operation
-		fmt.Printf("Warning: failed to delete challenge %s: %v\n", challengeID, err)
-	}
-
-	fmt.Printf("✓ Passkey login completed successfully:\n")
-	fmt.Printf("  - User ID: %s\n", challenge.UserID)
-	fmt.Printf("  - Credential ID: %s\n", credentialID)
-	fmt.Printf("  - New Sign Count: %d\n", credential.Authenticator.SignCount)
+	_ = s.storage.DeletePasskeyChallenge(challengeID)
 
 	return challenge.UserID, nil
 }
 
-// Helper methods - placeholder implementations
+// Helper methods
 
 func (s *Service) generateChallengeID() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("failed to generate challenge ID: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(bytes), nil
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func (s *Service) getWebAuthnCredentials(userID string) ([]webauthn.Credential, error) {
@@ -468,22 +372,15 @@ func (s *Service) getWebAuthnCredentials(userID string) ([]webauthn.Credential, 
 	for _, cred := range storedCreds {
 		credID, err := base64.RawURLEncoding.DecodeString(cred.ID)
 		if err != nil {
-			fmt.Printf("Warning: failed to decode credential ID %s: %v\n", cred.ID, err)
-			continue // Skip invalid credentials
+			continue
 		}
 
-		// Decode AAGUID if present
 		var aaguid []byte
 		if cred.AAGUID != "" {
-			if decodedAAGUID, err := base64.RawURLEncoding.DecodeString(cred.AAGUID); err == nil {
-				aaguid = decodedAAGUID
-			} else {
-				fmt.Printf("Warning: failed to decode AAGUID %s: %v\n", cred.AAGUID, err)
+			if decoded, err := base64.RawURLEncoding.DecodeString(cred.AAGUID); err == nil {
+				aaguid = decoded
 			}
 		}
-
-		transports := transportProtocols(cred.Transports)
-		fmt.Printf("Debug: Credential %s - Stored transports: %v, Converted: %v\n", cred.ID[:8], cred.Transports, transports)
 
 		credentials = append(credentials, webauthn.Credential{
 			ID:        credID,
@@ -492,7 +389,7 @@ func (s *Service) getWebAuthnCredentials(userID string) ([]webauthn.Credential, 
 				SignCount: cred.SignCount,
 				AAGUID:    aaguid,
 			},
-			Transport: transports,
+			Transport: transportProtocols(cred.Transports),
 		})
 	}
 
@@ -509,10 +406,9 @@ func transportStrings(transports []protocol.AuthenticatorTransport) []string {
 
 func transportProtocols(transports []string) []protocol.AuthenticatorTransport {
 	if len(transports) == 0 {
-		// If no transports are stored, provide reasonable defaults
 		return []protocol.AuthenticatorTransport{
-			protocol.AuthenticatorTransport("internal"), // For built-in authenticators
-			protocol.AuthenticatorTransport("usb"),      // For external USB keys
+			protocol.AuthenticatorTransport("internal"),
+			protocol.AuthenticatorTransport("usb"),
 		}
 	}
 
@@ -523,49 +419,39 @@ func transportProtocols(transports []string) []protocol.AuthenticatorTransport {
 	return result
 }
 
-// encodeSessionData serializes WebAuthn session data to JSON
-func (s *Service) encodeSessionData(sessionData *webauthn.SessionData) string {
+func (s *Service) encodeSessionData(sessionData *webauthn.SessionData) (string, error) {
 	data, err := json.Marshal(sessionData)
 	if err != nil {
-		// Log error but don't fail the operation
-		return "{}"
+		return "", fmt.Errorf("failed to marshal session data: %w", err)
 	}
-	return string(data)
+	return string(data), nil
 }
 
-// encodeCreationOptions serializes credential creation options to JSON
-func (s *Service) encodeCreationOptions(options *protocol.CredentialCreation) string {
+func (s *Service) encodeCreationOptions(options *protocol.CredentialCreation) (string, error) {
 	data, err := json.Marshal(options)
 	if err != nil {
-		// Log error but don't fail the operation
-		return "{}"
+		return "", fmt.Errorf("failed to marshal creation options: %w", err)
 	}
-	return string(data)
+	return string(data), nil
 }
 
-// encodeAssertionOptions serializes credential assertion options to JSON
-func (s *Service) encodeAssertionOptions(options *protocol.CredentialAssertion) string {
+func (s *Service) encodeAssertionOptions(options *protocol.CredentialAssertion) (string, error) {
 	data, err := json.Marshal(options)
 	if err != nil {
-		// Log error but don't fail the operation
-		return "{}"
+		return "", fmt.Errorf("failed to marshal assertion options: %w", err)
 	}
-	return string(data)
+	return string(data), nil
 }
 
-// findUserByCredentialID finds the user ID associated with a credential ID
 func (s *Service) findUserByCredentialID(credentialID []byte) (string, error) {
-	// Convert credential ID to base64 string for database lookup
 	credentialIDStr := base64.RawURLEncoding.EncodeToString(credentialID)
 
-	// Get credential from database
 	storedCred, err := s.storage.GetPasskeyCredentialByID(credentialIDStr)
 	if err != nil {
 		return "", fmt.Errorf("credential not found: %w", err)
 	}
-
 	if storedCred == nil {
-		return "", fmt.Errorf("credential is nil for ID: %s", credentialIDStr)
+		return "", fmt.Errorf("credential not found: %s", credentialIDStr)
 	}
 
 	return storedCred.UserID, nil
