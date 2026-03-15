@@ -311,36 +311,46 @@ func (s *Service) FinishLogin(challengeID string, response *protocol.ParsedCrede
 		return "", fmt.Errorf("failed to decode session data: %w", err)
 	}
 
-	var user *User
+	var credential *webauthn.Credential
 
 	if challenge.UserID == "" {
-		// Discoverable login: find user by credential ID
-		userID, err := s.findUserByCredentialID(response.RawID)
-		if err != nil {
-			return "", fmt.Errorf("failed to find user for discoverable login: %w", err)
+		// Discoverable login: use ValidateDiscoverableLogin with a handler
+		// that looks up the user by credential ID
+		handler := func(rawID, userHandle []byte) (webauthn.User, error) {
+			userID, err := s.findUserByCredentialID(rawID)
+			if err != nil {
+				return nil, err
+			}
+			return s.CreateUser(userID)
 		}
 
-		challenge.UserID = userID
-		_ = s.storage.SavePasskeyChallenge(challenge)
-
-		user, err = s.CreateUser(userID)
+		var err error
+		credential, err = s.webauthn.ValidateDiscoverableLogin(handler, sessionData, response)
 		if err != nil {
-			return "", fmt.Errorf("failed to create user: %w", err)
+			return "", fmt.Errorf("failed to validate discoverable login: %w", err)
 		}
+
+		// Find user ID for session creation
+		foundUserID, err := s.findUserByCredentialID(response.RawID)
+		if err != nil {
+			return "", fmt.Errorf("failed to find user: %w", err)
+		}
+		challenge.UserID = foundUserID
 	} else {
-		user, err = s.CreateUser(challenge.UserID)
+		// Regular login with known user
+		user, err := s.CreateUser(challenge.UserID)
 		if err != nil {
 			return "", fmt.Errorf("failed to create user: %w", err)
 		}
-	}
 
-	if len(user.credentials) == 0 {
-		return "", fmt.Errorf("no passkey credentials found for user %s", challenge.UserID)
-	}
+		if len(user.credentials) == 0 {
+			return "", fmt.Errorf("no passkey credentials found for user %s", challenge.UserID)
+		}
 
-	credential, err := s.webauthn.ValidateLogin(user, sessionData, response)
-	if err != nil {
-		return "", fmt.Errorf("failed to validate login: %w", err)
+		credential, err = s.webauthn.ValidateLogin(user, sessionData, response)
+		if err != nil {
+			return "", fmt.Errorf("failed to validate login: %w", err)
+		}
 	}
 
 	// Update credential sign count

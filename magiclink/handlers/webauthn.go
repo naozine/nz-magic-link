@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"embed"
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/mail"
 
@@ -45,32 +43,19 @@ func NewWebAuthnHandlers(webauthnService WebAuthnService, sessionMgr session.Man
 }
 
 // Request/Response types
+
 type RegisterStartRequest struct {
-	Email string `json:"email" validate:"required,email"`
+	Email string `json:"email"`
 }
 
 type RegisterStartResponse struct {
-	ChallengeID string                       `json:"challenge_id"`
+	ChallengeID string                      `json:"challenge_id"`
 	Options     *protocol.CredentialCreation `json:"options"`
 }
 
 type RegisterFinishRequest struct {
-	ChallengeID string                `json:"challenge_id" validate:"required"`
-	Response    RawWebAuthnCredential `json:"response" validate:"required"`
-}
-
-// RawWebAuthnCredential represents the raw credential data from the client
-type RawWebAuthnCredential struct {
-	ID       string                   `json:"id"`
-	RawID    string                   `json:"rawId"`
-	Response RawAuthenticatorResponse `json:"response"`
-	Type     string                   `json:"type"`
-}
-
-// RawAuthenticatorResponse represents the raw authenticator response
-type RawAuthenticatorResponse struct {
-	AttestationObject string `json:"attestationObject"`
-	ClientDataJSON    string `json:"clientDataJSON"`
+	ChallengeID string          `json:"challenge_id"`
+	Response    json.RawMessage `json:"response"`
 }
 
 type LoginStartRequest struct {
@@ -78,29 +63,13 @@ type LoginStartRequest struct {
 }
 
 type LoginStartResponse struct {
-	ChallengeID string                        `json:"challenge_id"`
+	ChallengeID string                       `json:"challenge_id"`
 	Options     *protocol.CredentialAssertion `json:"options"`
 }
 
 type LoginFinishRequest struct {
-	ChallengeID string               `json:"challenge_id" validate:"required"`
-	Response    RawWebAuthnAssertion `json:"response" validate:"required"`
-}
-
-// RawWebAuthnAssertion represents the raw assertion data from the client
-type RawWebAuthnAssertion struct {
-	ID       string                        `json:"id"`
-	RawID    string                        `json:"rawId"`
-	Response RawAuthenticatorAssertionResp `json:"response"`
-	Type     string                        `json:"type"`
-}
-
-// RawAuthenticatorAssertionResp represents the raw authenticator assertion response
-type RawAuthenticatorAssertionResp struct {
-	AuthenticatorData string `json:"authenticatorData"`
-	ClientDataJSON    string `json:"clientDataJSON"`
-	Signature         string `json:"signature"`
-	UserHandle        string `json:"userHandle,omitempty"`
+	ChallengeID string          `json:"challenge_id"`
+	Response    json.RawMessage `json:"response"`
 }
 
 type LoginFinishResponse struct {
@@ -161,31 +130,13 @@ func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
 		})
 	}
 
-	if req.Response.ID == "" {
+	if len(req.Response) == 0 {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "WebAuthn response is required",
 		})
 	}
 
-	webauthnResponse := map[string]interface{}{
-		"id":    req.Response.ID,
-		"rawId": req.Response.RawID,
-		"response": map[string]interface{}{
-			"attestationObject": req.Response.Response.AttestationObject,
-			"clientDataJSON":    req.Response.Response.ClientDataJSON,
-		},
-		"type": req.Response.Type,
-	}
-
-	responseBytes, err := json.Marshal(webauthnResponse)
-	if err != nil {
-		c.Logger().Errorf("RegisterFinish: Failed to marshal response: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Failed to process WebAuthn response",
-		})
-	}
-
-	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(responseBytes)
+	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(req.Response)
 	if err != nil {
 		c.Logger().Errorf("RegisterFinish: Failed to parse WebAuthn response: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
@@ -237,17 +188,9 @@ func (h *WebAuthnHandlers) LoginStart(c echo.Context) error {
 
 	c.Logger().Debugf("LoginStart: Challenge created - ChallengeID: %s", challengeID)
 
-	convertedOptions, err := convertCredentialAssertionForBrowser(options)
-	if err != nil {
-		c.Logger().Errorf("LoginStart: Failed to convert options for browser: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to prepare login options",
-		})
-	}
-
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"challenge_id": challengeID,
-		"options":      convertedOptions,
+	return c.JSON(http.StatusOK, LoginStartResponse{
+		ChallengeID: challengeID,
+		Options:     options,
 	})
 }
 
@@ -263,17 +206,9 @@ func (h *WebAuthnHandlers) DiscoverableLoginStart(c echo.Context) error {
 
 	c.Logger().Debugf("DiscoverableLoginStart: Challenge created - ChallengeID: %s", challengeID)
 
-	convertedOptions, err := convertCredentialAssertionForBrowser(options)
-	if err != nil {
-		c.Logger().Errorf("DiscoverableLoginStart: Failed to convert options for browser: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to prepare discoverable login options",
-		})
-	}
-
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"challenge_id": challengeID,
-		"options":      convertedOptions,
+	return c.JSON(http.StatusOK, LoginStartResponse{
+		ChallengeID: challengeID,
+		Options:     options,
 	})
 }
 
@@ -293,36 +228,13 @@ func (h *WebAuthnHandlers) LoginFinish(c echo.Context) error {
 		})
 	}
 
-	if req.Response.ID == "" {
+	if len(req.Response) == 0 {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "WebAuthn response is required",
 		})
 	}
 
-	webauthnResponse := map[string]interface{}{
-		"id":    req.Response.ID,
-		"rawId": req.Response.RawID,
-		"response": map[string]interface{}{
-			"authenticatorData": req.Response.Response.AuthenticatorData,
-			"clientDataJSON":    req.Response.Response.ClientDataJSON,
-			"signature":         req.Response.Response.Signature,
-		},
-		"type": req.Response.Type,
-	}
-
-	if req.Response.Response.UserHandle != "" {
-		webauthnResponse["response"].(map[string]interface{})["userHandle"] = req.Response.Response.UserHandle
-	}
-
-	responseBytes, err := json.Marshal(webauthnResponse)
-	if err != nil {
-		c.Logger().Errorf("LoginFinish: Failed to marshal response: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Failed to process WebAuthn response",
-		})
-	}
-
-	parsedResponse, err := protocol.ParseCredentialRequestResponseBytes(responseBytes)
+	parsedResponse, err := protocol.ParseCredentialRequestResponseBytes(req.Response)
 	if err != nil {
 		c.Logger().Errorf("LoginFinish: Failed to parse WebAuthn response: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
@@ -377,30 +289,4 @@ func (h *WebAuthnHandlers) RegisterRoutes(e *echo.Echo) {
 	webauthn.POST("/login/discoverable", h.DiscoverableLoginStart)
 
 	webauthn.GET("/static/webauthn.js", h.ServeClientScript)
-}
-
-// convertCredentialAssertionForBrowser converts WebAuthn CredentialAssertion to browser-compatible format
-func convertCredentialAssertionForBrowser(assertion *protocol.CredentialAssertion) (map[string]interface{}, error) {
-	if assertion == nil {
-		return nil, fmt.Errorf("assertion is nil")
-	}
-
-	allowCredentials := make([]map[string]interface{}, len(assertion.Response.AllowedCredentials))
-	for i, cred := range assertion.Response.AllowedCredentials {
-		allowCredentials[i] = map[string]interface{}{
-			"id":         base64.RawURLEncoding.EncodeToString(cred.CredentialID),
-			"type":       cred.Type,
-			"transports": cred.Transport,
-		}
-	}
-
-	result := map[string]interface{}{
-		"challenge":        base64.RawURLEncoding.EncodeToString(assertion.Response.Challenge),
-		"timeout":          assertion.Response.Timeout,
-		"rpId":             assertion.Response.RelyingPartyID,
-		"allowCredentials": allowCredentials,
-		"userVerification": assertion.Response.UserVerification,
-	}
-
-	return result, nil
 }
