@@ -100,7 +100,7 @@
                     })
                 }).then(r => r.json());
 
-                if (finishResp.error) return;
+                if (finishResp.error) throw new Error(finishResp.error);
 
                 if (finishResp.redirect_url) {
                     window.location.href = finishResp.redirect_url;
@@ -109,8 +109,8 @@
                 return finishResp;
 
             } catch (e) {
-                if (e.name === 'AbortError') return; // Expected when aborted
-                console.error("WebAuthn Conditional Login Failed:", e);
+                if (e.name === 'AbortError') return;
+                throw e;
             }
         },
 

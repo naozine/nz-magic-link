@@ -126,7 +126,9 @@
         }
 
         // Conditional Mediation: show passkey suggestion on email field focus
-        MagicLink.conditionalLogin();
+        MagicLink.conditionalLogin().catch(e => {
+            showMessage('パスキーでのログインに失敗しました。パスキーを再登録するか、マジックリンクでログインしてください。', true);
+        });
     </script>
     {{end}}
 </body>
