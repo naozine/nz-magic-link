@@ -13,6 +13,63 @@ A simple, secure passwordless authentication library for Go applications using t
 - **Customizable**: Flexible configuration for tokens, sessions, and emails
 - **Echo Integration**: Easy to integrate with Echo web applications
 
+## Migrating to v0.3.0
+
+v0.3.0 includes breaking changes to the WebAuthn implementation. **If you are using WebAuthn/Passkey features, you must update your client-side code.**
+
+### Breaking Changes
+
+1. **WebAuthn Login/Registration response format changed**
+   - `POST /webauthn/login/start` and `POST /webauthn/login/discoverable` now return `{"options": {"publicKey": {...}}}` instead of the previous flat format `{"options": {"challenge": ..., "allowCredentials": ...}}`
+   - `POST /webauthn/register/finish` and `POST /webauthn/login/finish` now expect the request body `response` field to contain base64url-encoded strings (as returned by `credential.toJSON()`), not byte arrays
+
+2. **Passkey credentials database schema updated**
+   - `backup_eligible` and `backup_state` columns are automatically added to `passkey_credentials` table on startup
+   - Existing passkeys should be re-registered after upgrade for proper Backup Eligible flag handling
+
+### Recommended: Use the built-in `webauthn.js`
+
+The simplest way to avoid client-side compatibility issues is to use the library's built-in WebAuthn client script:
+
+```html
+<script src="/webauthn/static/webauthn.js"></script>
+
+<input type="email" autocomplete="username webauthn" />
+
+<script>
+  // Conditional Mediation: passkey suggestion on input focus
+  MagicLink.conditionalLogin();
+
+  // Registration
+  await MagicLink.register(email);
+
+  // Login with email
+  await MagicLink.login(email);
+
+  // Discoverable login (without email)
+  await MagicLink.loginDiscoverable();
+</script>
+```
+
+See [examples/webauthn-simple](examples/webauthn-simple) for a complete working example.
+
+### If you have custom WebAuthn client code
+
+Update your client to use the browser-native WebAuthn JSON API:
+
+```javascript
+// Before (v0.2.x)
+options.challenge = base64urlToBuffer(options.challenge);
+const assertion = await navigator.credentials.get({ publicKey: options });
+const body = { rawId: bufferToBase64url(assertion.rawId), ... };
+
+// After (v0.3.0)
+const assertion = await navigator.credentials.get({
+    publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(startResp.options.publicKey)
+});
+const body = { response: assertion.toJSON() };
+```
+
 ## Installation
 
 ```bash
