@@ -10,8 +10,13 @@
             }
         },
 
+        // Internal state for conditional login
+        _conditionalController: null,
+
         // Registration Flow
         async register(email) {
+            this.abortConditionalLogin();
+
             try {
                 const startResp = await fetch(this.config.endpoints.registerStart, {
                     method: 'POST',
@@ -21,12 +26,10 @@
 
                 if (startResp.error) throw new Error(startResp.error);
 
-                // Use browser native API to parse creation options
                 const credential = await navigator.credentials.create({
                     publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(startResp.options.publicKey)
                 });
 
-                // Use credential.toJSON() for base64url serialization
                 const finishResp = await fetch(this.config.endpoints.registerFinish, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -47,12 +50,76 @@
 
         // Login Flow (User Identified)
         async login(email) {
+            this.abortConditionalLogin();
             return this._loginFlow(this.config.endpoints.loginStart, { email });
         },
 
         // Login Flow (Discoverable / Userless)
         async loginDiscoverable() {
+            this.abortConditionalLogin();
             return this._loginFlow(this.config.endpoints.loginDiscoverable, {});
+        },
+
+        // Conditional Login (Conditional Mediation)
+        // Call on page load. The browser will show passkey suggestions when the user
+        // focuses an <input autocomplete="username webauthn"> field.
+        async conditionalLogin() {
+            if (!window.PublicKeyCredential ||
+                !PublicKeyCredential.isConditionalMediationAvailable) {
+                return;
+            }
+
+            const available = await PublicKeyCredential.isConditionalMediationAvailable();
+            if (!available) return;
+
+            this._conditionalController = new AbortController();
+
+            try {
+                const startResp = await fetch(this.config.endpoints.loginDiscoverable, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}'
+                }).then(r => r.json());
+
+                if (startResp.error) return;
+
+                const assertion = await navigator.credentials.get({
+                    publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(startResp.options.publicKey),
+                    mediation: 'conditional',
+                    signal: this._conditionalController.signal
+                });
+
+                this._conditionalController = null;
+
+                const finishResp = await fetch(this.config.endpoints.loginFinish, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        challenge_id: startResp.challenge_id,
+                        response: assertion.toJSON()
+                    })
+                }).then(r => r.json());
+
+                if (finishResp.error) return;
+
+                if (finishResp.redirect_url) {
+                    window.location.href = finishResp.redirect_url;
+                }
+
+                return finishResp;
+
+            } catch (e) {
+                if (e.name === 'AbortError') return; // Expected when aborted
+                console.error("WebAuthn Conditional Login Failed:", e);
+            }
+        },
+
+        // Abort any pending conditional login (called before other auth actions)
+        abortConditionalLogin() {
+            if (this._conditionalController) {
+                this._conditionalController.abort();
+                this._conditionalController = null;
+            }
         },
 
         async _loginFlow(endpoint, body) {
@@ -65,12 +132,10 @@
 
                 if (startResp.error) throw new Error(startResp.error);
 
-                // Use browser native API to parse request options
                 const assertion = await navigator.credentials.get({
                     publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(startResp.options.publicKey)
                 });
 
-                // Use assertion.toJSON() for base64url serialization
                 const finishResp = await fetch(this.config.endpoints.loginFinish, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

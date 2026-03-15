@@ -13,20 +13,17 @@ import (
 )
 
 func main() {
-	// Create a new Echo instance
 	e := echo.New()
 
-	// Middleware
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	// Configure MagicLink with WebAuthn enabled
 	config := magiclink.DefaultConfig()
 	config.DatabasePath = "magiclink.db"
+	config.DatabaseType = "sqlite"
 	config.ServerAddr = "http://localhost:8080"
 
-	// SMTP settings (Required for email-based registration flow if used, but we focus on WebAuthn here)
-	// For this example, we'll use bypass file for email flow or just assume user already exists/registers via WebAuthn
+	// Email bypass for development
 	config.DevBypassEmailFilePath = ".bypass_emails"
 
 	// WebAuthn Configuration
@@ -34,27 +31,22 @@ func main() {
 	config.WebAuthnRPID = "localhost"
 	config.WebAuthnRPName = "WebAuthn Example"
 	config.WebAuthnAllowedOrigins = []string{"http://localhost:8080"}
-	config.LoginURL = "/auth/login"
-	config.VerifyURL = "/auth/verify"
-	config.DatabaseType = "leveldb"
+	config.WebAuthnRedirectURL = "/dashboard"
 
-	// Create MagicLink instance
 	ml, err := magiclink.New(config)
 	if err != nil {
 		log.Fatalf("Failed to create MagicLink instance: %v", err)
 	}
 	defer ml.Close()
 
-	// Register MagicLink handlers
 	ml.RegisterHandlers(e)
 
-	// Setup templates
 	t := &Template{
 		templates: template.Must(template.ParseGlob("examples/webauthn-simple/views/*.html")),
 	}
 	e.Renderer = t
 
-	// Routes
+	// Home / Login page
 	e.GET("/", func(c echo.Context) error {
 		userID, authenticated := ml.GetUserID(c)
 		return c.Render(http.StatusOK, "index.html", map[string]interface{}{
@@ -66,7 +58,9 @@ func main() {
 	// Protected route
 	e.GET("/dashboard", func(c echo.Context) error {
 		userID, _ := ml.GetUserID(c)
-		return c.HTML(http.StatusOK, "<h1>Dashboard</h1><p>Welcome, "+userID+"!</p><a href='/'>Back to Home</a>")
+		return c.Render(http.StatusOK, "dashboard.html", map[string]interface{}{
+			"UserID": userID,
+		})
 	}, ml.AuthMiddleware())
 
 	// Create bypass file if not exists
@@ -74,12 +68,10 @@ func main() {
 		os.WriteFile(".bypass_emails", []byte("test@example.com\n"), 0644)
 	}
 
-	// Start server
 	log.Println("Server started at http://localhost:8080")
 	log.Fatal(e.Start(":8080"))
 }
 
-// Template renderer
 type Template struct {
 	templates *template.Template
 }
