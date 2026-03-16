@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/naozine/nz-magic-link/magiclink/internal/email"
+	"github.com/naozine/nz-magic-link/magiclink/internal/emailcheck"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
@@ -32,6 +34,7 @@ func TestLoginHandler_ConcurrentAccess_RateLimiter(t *testing.T) {
 		"Magic link sent",
 		nil,
 		false, // disableRateLimiting
+		nil,   // emailChecker
 	)
 
 	e := echo.New()
@@ -115,5 +118,95 @@ func TestIsDevBypass_MultiplePatterns(t *testing.T) {
 func TestIsDevBypass_EmptyInputs(t *testing.T) {
 	if isDevBypass("user@example.com", nil, nil) {
 		t.Error("expected false with nil map and nil patterns")
+	}
+}
+
+func newTestLoginHandler(checker *emailcheck.Checker) echo.HandlerFunc {
+	db := newMockDB()
+	tokenMgr := token.New(db, 15*time.Minute)
+	emailSender := email.New(email.Config{})
+
+	return LoginHandler(
+		tokenMgr,
+		emailSender,
+		100,
+		15*time.Minute,
+		map[string]bool{"test@example.com": true},
+		nil,
+		"http://localhost:8080",
+		"/auth/verify",
+		"Magic link sent",
+		nil,
+		true, // disableRateLimiting
+		checker,
+	)
+}
+
+func TestLoginHandler_BlacklistedDomain(t *testing.T) {
+	var blockedEmail, blockedReason string
+	checker := emailcheck.New(emailcheck.Config{
+		BlacklistDomains: map[string]bool{"mailinator.com": true},
+		OnBlocked: func(email, reason string) {
+			blockedEmail = email
+			blockedReason = reason
+		},
+	})
+
+	e := echo.New()
+	handler := newTestLoginHandler(checker)
+	rec := postJSON(e, handler, `{"email":"user@mailinator.com"}`)
+
+	// Should return 200 success (not reveal that it was blocked)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var resp LoginResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.Message != "Magic link sent" {
+		t.Errorf("unexpected message: %q", resp.Message)
+	}
+
+	// OnBlocked should have been called
+	if blockedEmail != "user@mailinator.com" {
+		t.Errorf("expected blocked email 'user@mailinator.com', got %q", blockedEmail)
+	}
+	if blockedReason != "disposable email domain" {
+		t.Errorf("unexpected reason: %q", blockedReason)
+	}
+}
+
+func TestLoginHandler_WhitelistedDomain(t *testing.T) {
+	checker := emailcheck.New(emailcheck.Config{
+		WhitelistDomains: map[string]bool{"example.com": true},
+		ValidateMX:       true,
+	})
+
+	e := echo.New()
+	handler := newTestLoginHandler(checker)
+	rec := postJSON(e, handler, `{"email":"test@example.com"}`)
+
+	// Should return 200 with magic_link (bypass mode)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var resp LoginResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.MagicLink == "" {
+		t.Error("expected magic_link in response (dev bypass)")
+	}
+}
+
+func TestLoginHandler_NilChecker(t *testing.T) {
+	e := echo.New()
+	handler := newTestLoginHandler(nil)
+	rec := postJSON(e, handler, `{"email":"test@example.com"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var resp LoginResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.MagicLink == "" {
+		t.Error("expected magic_link in response")
 	}
 }

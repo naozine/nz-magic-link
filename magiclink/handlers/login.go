@@ -13,6 +13,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/naozine/nz-magic-link/magiclink/internal/email"
+	"github.com/naozine/nz-magic-link/magiclink/internal/emailcheck"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
@@ -39,7 +40,7 @@ var (
 )
 
 // LoginHandler handles the login request.
-func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, devBypassPatterns []string, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error, disableRateLimiting bool) echo.HandlerFunc {
+func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, devBypassPatterns []string, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error, disableRateLimiting bool, emailChecker *emailcheck.Checker) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if !disableRateLimiting {
 			// Get the client IP address for rate limiting
@@ -98,6 +99,13 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 					Error: err.Error(),
 				})
 			}
+		}
+
+		// Check email domain quality (blacklist, whitelist, MX)
+		if emailChecker != nil && emailChecker.Check(req.Email) {
+			return c.JSON(http.StatusOK, LoginResponse{
+				Message: loginSuccessMessage,
+			})
 		}
 
 		if !disableRateLimiting {

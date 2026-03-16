@@ -14,6 +14,7 @@ import (
 
 	"github.com/naozine/nz-magic-link/magiclink/handlers"
 	"github.com/naozine/nz-magic-link/magiclink/internal/email"
+	"github.com/naozine/nz-magic-link/magiclink/internal/emailcheck"
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
 	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
@@ -50,6 +51,12 @@ type Config struct {
 	// If an email address in this file requests a magic link, the link will be returned in the response
 	// instead of being sent via email, allowing for easier testing of the authentication flow.
 	DevBypassEmailFilePath string
+
+	// Email domain quality check
+	EmailDomainWhitelistFile string                         // Path to whitelist file (1 domain per line)
+	EmailDomainBlacklistFile string                         // Path to blacklist file (1 domain per line)
+	ValidateEmailMX          bool                           // Enable MX record validation for unknown domains
+	OnEmailBlocked           func(email string, reason string) // Callback when email is blocked
 
 	// Token configuration
 	TokenExpiry time.Duration
@@ -160,6 +167,7 @@ type MagicLink struct {
 	WebAuthnService      *webauthn.Service // WebAuthn service for passkey authentication
 	DevBypassEmails      map[string]bool   // Map of email addresses that should bypass email sending
 	DevBypassPatterns    []string          // Wildcard patterns for bypass (e.g., "*@test.com")
+	EmailChecker         *emailcheck.Checker
 }
 
 // New creates a new MagicLink instance with the provided configuration.
@@ -285,6 +293,29 @@ func newMagicLink(config Config, database storage.Database) (*MagicLink, error) 
 		}
 	}
 
+	// Initialize email domain checker
+	var whitelist, blacklist map[string]bool
+	if config.EmailDomainWhitelistFile != "" {
+		var err error
+		whitelist, err = emailcheck.LoadDomainFile(config.EmailDomainWhitelistFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load email domain whitelist: %w", err)
+		}
+	}
+	if config.EmailDomainBlacklistFile != "" {
+		var err error
+		blacklist, err = emailcheck.LoadDomainFile(config.EmailDomainBlacklistFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load email domain blacklist: %w", err)
+		}
+	}
+	ml.EmailChecker = emailcheck.New(emailcheck.Config{
+		WhitelistDomains: whitelist,
+		BlacklistDomains: blacklist,
+		ValidateMX:       config.ValidateEmailMX,
+		OnBlocked:        config.OnEmailBlocked,
+	})
+
 	return ml, nil
 }
 
@@ -305,6 +336,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.Config.LoginSuccessMessage,
 		m.Config.AllowLogin,
 		m.Config.DisableRateLimiting,
+		m.EmailChecker,
 	))
 
 	e.GET(m.Config.VerifyURL, handlers.VerifyHandler(
