@@ -140,6 +140,32 @@ config := magiclink.DefaultConfig()
 - `EmailSubject`: メールの件名（デフォルト: `"Your Magic Link for Authentication"`）
 - `ServerAddr`: マジックリンク構築用のサーバーアドレス（デフォルト: `"http://localhost:8080"`）
 
+### メールドメイン品質チェック
+
+- `EmailDomainWhitelistFile`: 既知の正当なドメインのファイルパス（1行1ドメイン）。ホワイトリストのドメインは MX 検証をスキップ。`#` で始まる行はコメント。
+- `EmailDomainBlacklistFile`: 使い捨て/ブロックするドメインのファイルパス（1行1ドメイン）。[disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains) 等のオープンソースリストを利用可能。
+- `ValidateEmailMX`: ホワイトリストにないドメインの MX レコード検証を有効化（デフォルト: `false`）。検証に通ったドメインはメモリにキャッシュされる。
+- `OnEmailBlocked`: メールがブロックされた時のコールバック `func(email string, reason string)`。ライブラリ側ではログを出さないので、呼び出し側でログや通知を実装する。
+
+ブロックされた場合、クライアントには通常の成功レスポンス（「マジックリンクを送信しました」）を返し、ブロックされたことは伝えない。
+
+ファイルフォーマットの例（`email_whitelist.txt`）:
+```
+# メジャーなプロバイダ
+gmail.com
+yahoo.co.jp
+outlook.com
+```
+
+```go
+config.EmailDomainWhitelistFile = "email_whitelist.txt"
+config.EmailDomainBlacklistFile = "email_blacklist.txt"
+config.ValidateEmailMX = true
+config.OnEmailBlocked = func(email, reason string) {
+    log.Printf("Blocked email: %s (%s)", email, reason)
+}
+```
+
 ### トークン設定
 
 - `TokenExpiry`: トークンの有効期間（デフォルト: `30 * time.Minute`）

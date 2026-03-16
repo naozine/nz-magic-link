@@ -148,6 +148,32 @@ config := magiclink.DefaultConfig()
 - `EmailSubject`: Email subject line (default: `"Your Magic Link for Authentication"`)
 - `ServerAddr`: Server address for constructing magic links (default: `"http://localhost:8080"`)
 
+### Email Domain Quality Check
+
+- `EmailDomainWhitelistFile`: Path to a file containing known good domains (1 domain per line). Emails to these domains skip MX validation. Lines starting with `#` are comments.
+- `EmailDomainBlacklistFile`: Path to a file containing disposable/blocked domains (1 domain per line). Emails to these domains are silently blocked. Use open-source lists like [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains).
+- `ValidateEmailMX`: Enable MX record validation for domains not in the whitelist (default: `false`). Domains that pass validation are cached in memory for subsequent requests.
+- `OnEmailBlocked`: Callback `func(email string, reason string)` called when an email is blocked. Use this for logging or monitoring — the library does not log blocked emails itself.
+
+When an email is blocked, the client receives a normal success response (`"Magic link sent"`) to avoid revealing which domains are blocked.
+
+File format example (`email_whitelist.txt`):
+```
+# Major providers
+gmail.com
+yahoo.co.jp
+outlook.com
+```
+
+```go
+config.EmailDomainWhitelistFile = "email_whitelist.txt"
+config.EmailDomainBlacklistFile = "email_blacklist.txt"
+config.ValidateEmailMX = true
+config.OnEmailBlocked = func(email, reason string) {
+    log.Printf("Blocked email: %s (%s)", email, reason)
+}
+```
+
 ### Token Configuration
 
 - `TokenExpiry`: How long tokens are valid for (default: `30 * time.Minute`)
