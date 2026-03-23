@@ -2,41 +2,16 @@ package main
 
 import (
 	"html/template"
-	"io"
+	"log"
 	"net/http"
 	"os"
-
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/labstack/gommon/log"
 
 	"github.com/naozine/nz-magic-link/magiclink"
 )
 
-// TemplateRenderer Template renderer for Echo
-type TemplateRenderer struct {
-	templates *template.Template
-}
-
-func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
-}
+var templates = template.Must(template.ParseGlob("examples/simple/templates/*.html"))
 
 func main() {
-	// Create a new Echo instance
-	e := echo.New()
-	e.Logger.SetLevel(log.DEBUG)
-
-	// Configure middleware
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-
-	// Configure templates
-	renderer := &TemplateRenderer{
-		templates: template.Must(template.ParseGlob("examples/simple/templates/*.html")),
-	}
-	e.Renderer = renderer
-
 	// Create a default configuration for MagicLink
 	config := magiclink.DefaultConfig()
 
@@ -80,28 +55,26 @@ Content-Transfer-Encoding: 8bit
 {{.FromNameOriginal}}
 `
 
-	config.DatabasePath = "level.db"
-	config.DatabaseType = "leveldb"
-	config.DatabaseOptions = map[string]string{
-		"block_cache_capacity": "33554432", // 32MB
-		"write_buffer":         "16777216", // 16MB
-	}
+	config.DatabasePath = "magiclink.db"
+	config.DatabaseType = "sqlite"
 
 	// Create a new MagicLink instance
 	ml, err := magiclink.New(config)
 	if err != nil {
-		e.Logger.Fatal(err)
+		log.Fatal(err)
 	}
 
+	mux := http.NewServeMux()
+
 	// Register the authentication handlers
-	ml.RegisterHandlers(e)
+	mux.Handle("/auth/", ml.Handler())
 
 	// Error page route for verify failures
-	e.GET("/error", func(c echo.Context) error {
-		errorCode := c.QueryParam("error")
-		description := c.QueryParam("error_description")
-		statusCode := c.QueryParam("code")
-		return c.Render(http.StatusOK, "error.html", map[string]interface{}{
+	mux.HandleFunc("GET /error", func(w http.ResponseWriter, r *http.Request) {
+		errorCode := r.URL.Query().Get("error")
+		description := r.URL.Query().Get("error_description")
+		statusCode := r.URL.Query().Get("code")
+		templates.ExecuteTemplate(w, "error.html", map[string]interface{}{
 			"error":             errorCode,
 			"error_description": description,
 			"code":              statusCode,
@@ -109,32 +82,33 @@ Content-Transfer-Encoding: 8bit
 	})
 
 	// Public routes
-	e.GET("/", func(c echo.Context) error {
-		// Check if the user is authenticated
-		userID, authenticated := ml.GetUserID(c)
-		return c.Render(http.StatusOK, "home.html", map[string]interface{}{
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		userID, authenticated := ml.ValidateSession(r)
+		templates.ExecuteTemplate(w, "home.html", map[string]interface{}{
 			"authenticated": authenticated,
 			"userID":        userID,
 		})
 	})
 
-	e.GET("/login", func(c echo.Context) error {
-		return c.Render(http.StatusOK, "login.html", nil)
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		templates.ExecuteTemplate(w, "login.html", nil)
 	})
 
 	// Protected routes
-	protected := e.Group("/dashboard")
-	protected.Use(ml.AuthMiddleware())
-
-	protected.GET("", func(c echo.Context) error {
-		userID, _ := ml.GetUserID(c)
-		return c.Render(http.StatusOK, "dashboard.html", map[string]interface{}{
+	mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		userID, authenticated := ml.ValidateSession(r)
+		if !authenticated {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
 			"userID": userID,
 		})
 	})
 
 	// Start the server
-	e.Logger.Fatal(e.Start(":8080"))
+	log.Println("Server started at http://localhost:8080")
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
 // Helper function to get environment variables with fallback

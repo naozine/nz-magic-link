@@ -34,7 +34,7 @@ type PasskeyChallenge struct {
 }
 
 // Database defines the interface for all database implementations.
-// This allows switching between different storage backends (SQLite, LevelDB, etc.)
+// This allows switching between different storage backends.
 type Database interface {
 	// Init initializes the database (creates tables, indexes, etc.)
 	Init() error
@@ -78,7 +78,7 @@ type Database interface {
 
 // Config holds configuration for database connections.
 type Config struct {
-	Type    string            `json:"type"`    // "sqlite", "leveldb", etc.
+	Type    string            `json:"type"`    // "sqlite"
 	Path    string            `json:"path"`    // file path for file-based databases
 	Options map[string]string `json:"options"` // database-specific options
 }
@@ -87,8 +87,7 @@ type Config struct {
 type DatabaseType string
 
 const (
-	TypeSQLite  DatabaseType = "sqlite"
-	TypeLevelDB DatabaseType = "leveldb"
+	TypeSQLite DatabaseType = "sqlite"
 )
 
 // Factory creates database instances based on configuration.
@@ -104,8 +103,6 @@ func (f *Factory) Create(config Config) (Database, error) {
 	switch DatabaseType(config.Type) {
 	case TypeSQLite:
 		return NewSQLiteDB(config)
-	case TypeLevelDB:
-		return NewLevelDB(config)
 	default:
 		return nil, &UnsupportedDatabaseError{Type: config.Type}
 	}

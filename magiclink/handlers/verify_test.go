@@ -7,11 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/labstack/echo/v4"
 
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
 	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
@@ -157,10 +156,9 @@ func (m *mockDB) CleanupExpiredPasskeyChallenges() error          { return nil }
 
 func (m *mockDB) Ping() error { return nil }
 
-// helper to set up Echo, managers and perform request
-func setup(t *testing.T) (*echo.Echo, *token.Manager, *session.Manager, *mockDB) {
+// helper to set up managers
+func setup(t *testing.T) (*token.Manager, *session.Manager, *mockDB) {
 	t.Helper()
-	e := echo.New()
 	db := newMockDB()
 
 	tokenMgr := token.New(db, 15*time.Minute)
@@ -172,22 +170,29 @@ func setup(t *testing.T) (*echo.Echo, *token.Manager, *session.Manager, *mockDB)
 		CookiePath:     "/",
 		SessionExpiry:  time.Hour,
 	})
-	return e, tokenMgr, sessMgr, db
+	return tokenMgr, sessMgr, db
 }
 
-func performRequest(e *echo.Echo, h echo.HandlerFunc, target string) *httptest.ResponseRecorder {
+func performGET(h http.HandlerFunc, target string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, target, nil)
 	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	_ = h(c)
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func postJSONRequest(h http.HandlerFunc, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
 	return rec
 }
 
 func TestVerifyHandler_TokenMissing_JSON(t *testing.T) {
-	e, tokenMgr, sessMgr, _ := setup(t)
+	tokenMgr, sessMgr, _ := setup(t)
 
 	handler := VerifyHandler(tokenMgr, sessMgr, "", "")
-	rec := performRequest(e, handler, "/auth/verify")
+	rec := performGET(handler, "/auth/verify")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rec.Code)
@@ -203,10 +208,10 @@ func TestVerifyHandler_TokenMissing_JSON(t *testing.T) {
 }
 
 func TestVerifyHandler_TokenMissing_Redirect(t *testing.T) {
-	e, tokenMgr, sessMgr, _ := setup(t)
+	tokenMgr, sessMgr, _ := setup(t)
 
 	handler := VerifyHandler(tokenMgr, sessMgr, "", "https://example.com/error")
-	rec := performRequest(e, handler, "/auth/verify")
+	rec := performGET(handler, "/auth/verify")
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("expected status 302, got %d", rec.Code)
@@ -232,10 +237,10 @@ func TestVerifyHandler_TokenMissing_Redirect(t *testing.T) {
 }
 
 func TestVerifyHandler_InvalidToken_JSON(t *testing.T) {
-	e, tokenMgr, sessMgr, _ := setup(t)
+	tokenMgr, sessMgr, _ := setup(t)
 
 	handler := VerifyHandler(tokenMgr, sessMgr, "", "")
-	rec := performRequest(e, handler, "/auth/verify?token=nonexistent")
+	rec := performGET(handler, "/auth/verify?token=nonexistent")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rec.Code)
@@ -250,7 +255,7 @@ func TestVerifyHandler_InvalidToken_JSON(t *testing.T) {
 }
 
 func TestVerifyHandler_TokenUsed_Redirect_WithOverride(t *testing.T) {
-	e, tokenMgr, sessMgr, db := setup(t)
+	tokenMgr, sessMgr, db := setup(t)
 
 	// prepare a token in DB that is already used
 	tok := "token-used"
@@ -258,7 +263,7 @@ func TestVerifyHandler_TokenUsed_Redirect_WithOverride(t *testing.T) {
 	db.tokens[tokenHash] = mockToken{token: tok, email: "user@example.com", expiresAt: time.Now().Add(10 * time.Minute), used: true}
 
 	handler := VerifyHandler(tokenMgr, sessMgr, "", "https://default.example.com/err")
-	rec := performRequest(e, handler, "/auth/verify?token="+url.QueryEscape(tok)+"&error_redirect="+url.QueryEscape("https://override.example.com/path"))
+	rec := performGET(handler, "/auth/verify?token="+url.QueryEscape(tok)+"&error_redirect="+url.QueryEscape("https://override.example.com/path"))
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("expected status 302, got %d", rec.Code)
@@ -281,7 +286,7 @@ func TestVerifyHandler_TokenUsed_Redirect_WithOverride(t *testing.T) {
 }
 
 func TestVerifyHandler_InternalError_SaveSession_Redirect(t *testing.T) {
-	e, tokenMgr, sessMgr, db := setup(t)
+	tokenMgr, sessMgr, db := setup(t)
 
 	// valid token present
 	tok := "valid-token"
@@ -291,7 +296,7 @@ func TestVerifyHandler_InternalError_SaveSession_Redirect(t *testing.T) {
 	db.errSaveSession = assertErr("save session failure")
 
 	handler := VerifyHandler(tokenMgr, sessMgr, "", "https://example.com/err")
-	rec := performRequest(e, handler, "/auth/verify?token="+url.QueryEscape(tok))
+	rec := performGET(handler, "/auth/verify?token="+url.QueryEscape(tok))
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("expected status 302, got %d", rec.Code)
@@ -307,14 +312,14 @@ func TestVerifyHandler_InternalError_SaveSession_Redirect(t *testing.T) {
 }
 
 func TestVerifyHandler_Success_Redirect_AndCookie(t *testing.T) {
-	e, tokenMgr, sessMgr, db := setup(t)
+	tokenMgr, sessMgr, db := setup(t)
 
 	tok := "ok-token"
 	tokenHash := hashTokenLocal(tok)
 	db.tokens[tokenHash] = mockToken{token: tok, email: "ok@example.com", expiresAt: time.Now().Add(10 * time.Minute), used: false}
 
 	handler := VerifyHandler(tokenMgr, sessMgr, "https://app.example.com/after", "")
-	rec := performRequest(e, handler, "/auth/verify?token="+url.QueryEscape(tok))
+	rec := performGET(handler, "/auth/verify?token="+url.QueryEscape(tok))
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("expected status 302, got %d", rec.Code)

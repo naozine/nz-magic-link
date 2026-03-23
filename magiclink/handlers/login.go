@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labstack/echo/v4"
 	"golang.org/x/time/rate"
 
 	"github.com/naozine/nz-magic-link/magiclink/internal/email"
@@ -40,11 +39,11 @@ var (
 )
 
 // LoginHandler handles the login request.
-func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, devBypassPatterns []string, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(c echo.Context, email string) error, disableRateLimiting bool, emailChecker *emailcheck.Checker) echo.HandlerFunc {
-	return func(c echo.Context) error {
+func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAttempts int, window time.Duration, devBypassEmails map[string]bool, devBypassPatterns []string, serverAddr string, verifyURL string, loginSuccessMessage string, allowLogin func(r *http.Request, email string) error, disableRateLimiting bool, emailChecker *emailcheck.Checker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if !disableRateLimiting {
 			// Get the client IP address for rate limiting
-			ip := c.RealIP()
+			ip := realIP(r)
 
 			// Check global rate limit (per IP)
 			rateLimitersMu.RLock()
@@ -63,73 +62,82 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 			}
 
 			if !limiter.Allow() {
-				return c.JSON(http.StatusTooManyRequests, ErrorResponse{
+				writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
 					Error: "Too many requests. Please try again later.",
 				})
+				return
 			}
 		}
 
 		// Parse the request body
 		var req LoginRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+		if err := readJSON(r, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Invalid request body",
 			})
+			return
 		}
 
 		// Validate the email
 		if req.Email == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Email is required",
 			})
+			return
 		}
 
 		// Validate email format
 		_, err := mail.ParseAddress(req.Email)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Invalid email format",
 			})
+			return
 		}
 
 		// Check if login is allowed
 		if allowLogin != nil {
-			if err := allowLogin(c, req.Email); err != nil {
-				return c.JSON(http.StatusForbidden, ErrorResponse{
+			if err := allowLogin(r, req.Email); err != nil {
+				writeJSON(w, http.StatusForbidden, ErrorResponse{
 					Error: err.Error(),
 				})
+				return
 			}
 		}
 
 		// Check email domain quality (blacklist, whitelist, MX)
 		if emailChecker != nil && emailChecker.Check(req.Email) {
-			return c.JSON(http.StatusOK, LoginResponse{
+			writeJSON(w, http.StatusOK, LoginResponse{
 				Message: loginSuccessMessage,
 			})
+			return
 		}
 
 		if !disableRateLimiting {
 			// Check user-specific rate limit
 			exceeded, err := tokenManager.CheckRateLimit(req.Email, maxAttempts, window)
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 					Error: "Failed to check rate limit",
 				})
+				return
 			}
 
 			if exceeded {
-				return c.JSON(http.StatusTooManyRequests, ErrorResponse{
+				writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
 					Error: fmt.Sprintf("Too many login attempts. Please try again after %d minutes.", int(window.Minutes())),
 				})
+				return
 			}
 		}
 
 		// Generate a token
 		token0, err := tokenManager.Generate(req.Email)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to generate token",
 			})
+			return
 		}
 
 		// Check if the email is in the bypass list (exact match or wildcard pattern)
@@ -138,22 +146,24 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 			magicLink := fmt.Sprintf("%s%s?token=%s", serverAddr, verifyURL, token0)
 
 			// Return the magic link in the response
-			return c.JSON(http.StatusOK, LoginResponse{
+			writeJSON(w, http.StatusOK, LoginResponse{
 				Message:   "Development mode: Magic link generated",
 				MagicLink: magicLink,
 			})
+			return
 		}
 
 		// Send the magic link
 		err = emailSender.SendMagicLink(req.Email, token0, int(tokenManager.TokenExpiry.Minutes()))
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send magic link",
 			})
+			return
 		}
 
 		// Return a success response
-		return c.JSON(http.StatusOK, LoginResponse{
+		writeJSON(w, http.StatusOK, LoginResponse{
 			Message: loginSuccessMessage,
 		})
 	}

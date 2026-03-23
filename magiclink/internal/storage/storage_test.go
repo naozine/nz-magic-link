@@ -22,17 +22,6 @@ func setupSQLite(t *testing.T) *SQLiteDB {
 	return db
 }
 
-// setupLevelDB creates a temporary LevelDB database for testing.
-func setupLevelDB(t *testing.T) *LevelDB {
-	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.leveldb")
-	db, err := NewLevelDB(Config{Path: dbPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
 
 func TestMarkTokenUsedAndCreateSession_SQLite(t *testing.T) {
 	db := setupSQLite(t)
@@ -102,64 +91,6 @@ func TestMarkTokenUsedAndCreateSession_SQLite_Atomicity(t *testing.T) {
 	}
 	if used {
 		t.Error("expected token to NOT be marked as used after rollback")
-	}
-}
-
-func TestMarkTokenUsedAndCreateSession_LevelDB(t *testing.T) {
-	db := setupLevelDB(t)
-
-	// Save a token
-	tokenHash := "testhash789"
-	err := db.SaveToken("rawtoken3", tokenHash, "user@example.com", time.Now().Add(30*time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Execute the combined operation
-	expiresAt := time.Now().Add(time.Hour)
-	err = db.MarkTokenUsedAndCreateSession(tokenHash, "sess-id-ldb", "sess-hash-ldb", "user@example.com", expiresAt)
-	if err != nil {
-		t.Fatalf("MarkTokenUsedAndCreateSession failed: %v", err)
-	}
-
-	// Verify token is marked as used
-	_, _, _, used, err := db.GetTokenByHash(tokenHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !used {
-		t.Error("expected token to be marked as used")
-	}
-
-	// Verify session was created
-	sessionID, userID, _, err := db.GetSessionByHash("sess-hash-ldb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sessionID != "sess-id-ldb" {
-		t.Errorf("expected session ID 'sess-id-ldb', got %q", sessionID)
-	}
-	if userID != "user@example.com" {
-		t.Errorf("expected user ID 'user@example.com', got %q", userID)
-	}
-}
-
-func TestMarkTokenUsedAndCreateSession_LevelDB_NonexistentToken(t *testing.T) {
-	db := setupLevelDB(t)
-
-	// Attempt with a token that doesn't exist
-	err := db.MarkTokenUsedAndCreateSession("nonexistent", "sess-id", "sess-hash", "user@example.com", time.Now().Add(time.Hour))
-	if err == nil {
-		t.Fatal("expected error for nonexistent token, got nil")
-	}
-
-	// Verify session was NOT created
-	sessionID, _, _, err := db.GetSessionByHash("sess-hash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sessionID != "" {
-		t.Error("expected no session to be created for nonexistent token")
 	}
 }
 
@@ -243,40 +174,6 @@ func TestPasskeyCredential_BackupFlags_Default_SQLite(t *testing.T) {
 	}
 	if got.BackupState {
 		t.Error("expected BackupState to be false by default")
-	}
-}
-
-func TestPasskeyCredential_BackupFlags_LevelDB(t *testing.T) {
-	db := setupLevelDB(t)
-
-	now := time.Now()
-	cred := &PasskeyCredential{
-		ID:              "cred-1",
-		UserID:          "user@example.com",
-		PublicKey:       []byte("pubkey"),
-		SignCount:       0,
-		AAGUID:          "aaguid",
-		AttestationType: "none",
-		Transports:      []string{"internal"},
-		BackupEligible:  true,
-		BackupState:     false,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-
-	if err := db.SavePasskeyCredential(cred); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := db.GetPasskeyCredentialByID("cred-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.BackupEligible {
-		t.Error("expected BackupEligible to be true")
-	}
-	if got.BackupState {
-		t.Error("expected BackupState to be false")
 	}
 }
 

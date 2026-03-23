@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/labstack/echo/v4"
 
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
 )
@@ -63,9 +62,8 @@ func (m *mockWebAuthnService) FinishLogin(challengeID string, response *protocol
 //go:embed testdata
 var testFS embed.FS
 
-func setupWebAuthnHandlers(t *testing.T, svc *mockWebAuthnService) (*echo.Echo, *WebAuthnHandlers) {
+func setupWebAuthnHandlers(t *testing.T, svc *mockWebAuthnService) *WebAuthnHandlers {
 	t.Helper()
-	e := echo.New()
 	db := newMockDB()
 	sessMgr := session.New(db, session.Config{
 		CookieName:     "session",
@@ -77,23 +75,22 @@ func setupWebAuthnHandlers(t *testing.T, svc *mockWebAuthnService) (*echo.Echo, 
 	})
 
 	h := NewWebAuthnHandlers(svc, *sessMgr, testFS, "/dashboard")
-	return e, h
+	return h
 }
 
-func postJSON(e *echo.Echo, handler echo.HandlerFunc, body string) *httptest.ResponseRecorder {
+func postJSONHandler(handler http.HandlerFunc, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	_ = handler(c)
+	handler.ServeHTTP(rec, req)
 	return rec
 }
 
 // --- RegisterStart tests ---
 
 func TestRegisterStart_EmailRequired(t *testing.T) {
-	e, h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
-	rec := postJSON(e, h.RegisterStart, `{}`)
+	h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
+	rec := postJSONHandler(h.RegisterStart, `{}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -106,8 +103,8 @@ func TestRegisterStart_EmailRequired(t *testing.T) {
 }
 
 func TestRegisterStart_InvalidEmail(t *testing.T) {
-	e, h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
-	rec := postJSON(e, h.RegisterStart, `{"email":"not-an-email"}`)
+	h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
+	rec := postJSONHandler(h.RegisterStart, `{"email":"not-an-email"}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -129,8 +126,8 @@ func TestRegisterStart_Success(t *testing.T) {
 		},
 	}
 
-	e, h := setupWebAuthnHandlers(t, svc)
-	rec := postJSON(e, h.RegisterStart, `{"email":"user@example.com"}`)
+	h := setupWebAuthnHandlers(t, svc)
+	rec := postJSONHandler(h.RegisterStart, `{"email":"user@example.com"}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -149,8 +146,8 @@ func TestRegisterStart_ServiceError(t *testing.T) {
 		},
 	}
 
-	e, h := setupWebAuthnHandlers(t, svc)
-	rec := postJSON(e, h.RegisterStart, `{"email":"user@example.com"}`)
+	h := setupWebAuthnHandlers(t, svc)
+	rec := postJSONHandler(h.RegisterStart, `{"email":"user@example.com"}`)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
@@ -160,8 +157,8 @@ func TestRegisterStart_ServiceError(t *testing.T) {
 // --- RegisterFinish tests ---
 
 func TestRegisterFinish_ChallengeIDRequired(t *testing.T) {
-	e, h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
-	rec := postJSON(e, h.RegisterFinish, `{"challenge_id":"","response":{}}`)
+	h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
+	rec := postJSONHandler(h.RegisterFinish, `{"challenge_id":"","response":{}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -169,8 +166,8 @@ func TestRegisterFinish_ChallengeIDRequired(t *testing.T) {
 }
 
 func TestRegisterFinish_ResponseRequired(t *testing.T) {
-	e, h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
-	rec := postJSON(e, h.RegisterFinish, `{"challenge_id":"abc"}`)
+	h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
+	rec := postJSONHandler(h.RegisterFinish, `{"challenge_id":"abc"}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -191,8 +188,8 @@ func TestLoginStart_WithEmail(t *testing.T) {
 		},
 	}
 
-	e, h := setupWebAuthnHandlers(t, svc)
-	rec := postJSON(e, h.LoginStart, `{"email":"user@example.com"}`)
+	h := setupWebAuthnHandlers(t, svc)
+	rec := postJSONHandler(h.LoginStart, `{"email":"user@example.com"}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -211,8 +208,8 @@ func TestLoginStart_Discoverable(t *testing.T) {
 		},
 	}
 
-	e, h := setupWebAuthnHandlers(t, svc)
-	rec := postJSON(e, h.LoginStart, `{}`)
+	h := setupWebAuthnHandlers(t, svc)
+	rec := postJSONHandler(h.LoginStart, `{}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -229,8 +226,8 @@ func TestLoginStart_ServiceError(t *testing.T) {
 		},
 	}
 
-	e, h := setupWebAuthnHandlers(t, svc)
-	rec := postJSON(e, h.LoginStart, `{"email":"user@example.com"}`)
+	h := setupWebAuthnHandlers(t, svc)
+	rec := postJSONHandler(h.LoginStart, `{"email":"user@example.com"}`)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
@@ -246,8 +243,8 @@ func TestDiscoverableLoginStart_Success(t *testing.T) {
 		},
 	}
 
-	e, h := setupWebAuthnHandlers(t, svc)
-	rec := postJSON(e, h.DiscoverableLoginStart, `{}`)
+	h := setupWebAuthnHandlers(t, svc)
+	rec := postJSONHandler(h.DiscoverableLoginStart, `{}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -257,8 +254,8 @@ func TestDiscoverableLoginStart_Success(t *testing.T) {
 // --- LoginFinish tests ---
 
 func TestLoginFinish_ChallengeIDRequired(t *testing.T) {
-	e, h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
-	rec := postJSON(e, h.LoginFinish, `{"challenge_id":"","response":{}}`)
+	h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
+	rec := postJSONHandler(h.LoginFinish, `{"challenge_id":"","response":{}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -266,8 +263,8 @@ func TestLoginFinish_ChallengeIDRequired(t *testing.T) {
 }
 
 func TestLoginFinish_ResponseRequired(t *testing.T) {
-	e, h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
-	rec := postJSON(e, h.LoginFinish, `{"challenge_id":"abc"}`)
+	h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
+	rec := postJSONHandler(h.LoginFinish, `{"challenge_id":"abc"}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -275,10 +272,10 @@ func TestLoginFinish_ResponseRequired(t *testing.T) {
 }
 
 func TestLoginFinish_InvalidResponse(t *testing.T) {
-	e, h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
+	h := setupWebAuthnHandlers(t, &mockWebAuthnService{})
 	// Invalid WebAuthn assertion data — should fail at parse stage
 	body := `{"challenge_id":"abc","response":{"id":"dGVzdA","rawId":"dGVzdA","type":"public-key","response":{"authenticatorData":"dGVzdA","clientDataJSON":"dGVzdA","signature":"dGVzdA"}}}`
-	rec := postJSON(e, h.LoginFinish, body)
+	rec := postJSONHandler(h.LoginFinish, body)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())

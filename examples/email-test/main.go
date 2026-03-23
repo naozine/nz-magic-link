@@ -2,18 +2,15 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
+	"log"
 	"net/http"
 	"net/mail"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/labstack/gommon/log"
 
 	"github.com/naozine/nz-magic-link/magiclink"
 )
@@ -24,15 +21,6 @@ type CustomEmailData struct {
 	UserName string
 	OrderID  string
 	Amount   float64
-}
-
-// TemplateRenderer Template renderer for Echo
-type TemplateRenderer struct {
-	templates *template.Template
-}
-
-func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
 }
 
 // EmailRequest represents the request body for the email sending endpoint
@@ -58,21 +46,15 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+var templates = template.Must(template.ParseGlob("examples/email-test/templates/*.html"))
+
+func writeJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
 func main() {
-	// Create a new Echo instance
-	e := echo.New()
-	e.Logger.SetLevel(log.DEBUG)
-
-	// Configure middleware
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-
-	// Configure templates
-	renderer := &TemplateRenderer{
-		templates: template.Must(template.ParseGlob("examples/email-test/templates/*.html")),
-	}
-	e.Renderer = renderer
-
 	// Create a default configuration for MagicLink
 	config := magiclink.DefaultConfig()
 
@@ -94,7 +76,7 @@ func main() {
 	// Create a new MagicLink instance
 	ml, err := magiclink.New(config)
 	if err != nil {
-		e.Logger.Fatal(err)
+		log.Fatal(err)
 	}
 	defer ml.Close()
 
@@ -114,40 +96,46 @@ func main() {
 		}
 	}
 
+	mux := http.NewServeMux()
+
 	// Routes
-	e.GET("/", func(c echo.Context) error {
-		return c.Render(http.StatusOK, "email-form.html", nil)
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		templates.ExecuteTemplate(w, "email-form.html", nil)
 	})
 
-	e.POST("/send-email", func(c echo.Context) error {
+	mux.HandleFunc("POST /send-email", func(w http.ResponseWriter, r *http.Request) {
 		// Parse the request body
 		var req EmailRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Invalid request body",
 			})
+			return
 		}
 
 		// Validate the email
 		if req.To == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Email address is required",
 			})
+			return
 		}
 
 		// Validate email format
 		_, err := mail.ParseAddress(req.To)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Invalid email format",
 			})
+			return
 		}
 
 		// Validate the subject
 		if req.Subject == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Subject is required",
 			})
+			return
 		}
 
 		// Create a custom email template with the user's body
@@ -174,18 +162,20 @@ Content-Transfer-Encoding: 8bit
 			magicLink := fmt.Sprintf("%s/auth/verify?token=%s", config.ServerAddr, token)
 
 			// Return the magic link in the response
-			return c.JSON(http.StatusOK, EmailResponse{
+			writeJSON(w, http.StatusOK, EmailResponse{
 				Message:   "Development mode: Magic link generated",
 				MagicLink: magicLink,
 			})
+			return
 		}
 
 		// Generate a token using the token manager
 		generatedToken, err := ml.TokenManager.Generate(req.To)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to generate token: " + err.Error(),
 			})
+			return
 		}
 
 		// Create a simple data struct for the custom template
@@ -196,66 +186,73 @@ Content-Transfer-Encoding: 8bit
 		// Use SendMagicLinkWithTemplateAndData to send the email with custom template and subject
 		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, simpleData, req.Preview)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send email: " + err.Error(),
 			})
+			return
 		}
 
 		// Return response based on preview mode
 		if req.Preview {
-			return c.JSON(http.StatusOK, EmailResponse{
+			writeJSON(w, http.StatusOK, EmailResponse{
 				Message:        "Email preview generated successfully",
 				PreviewContent: previewContent,
 			})
 		} else {
-			return c.JSON(http.StatusOK, EmailResponse{
+			writeJSON(w, http.StatusOK, EmailResponse{
 				Message: "Email sent successfully",
 			})
 		}
 	})
 
-	e.POST("/send-custom-email", func(c echo.Context) error {
+	mux.HandleFunc("POST /send-custom-email", func(w http.ResponseWriter, r *http.Request) {
 		// Parse the request body
 		var req EmailRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Invalid request body",
 			})
+			return
 		}
 
 		// Validate the email
 		if req.To == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Email address is required",
 			})
+			return
 		}
 
 		// Validate email format
 		_, err := mail.ParseAddress(req.To)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Invalid email format",
 			})
+			return
 		}
 
 		// Validate the subject
 		if req.Subject == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Subject is required",
 			})
+			return
 		}
 
 		// Validate custom fields
 		if req.UserName == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "User name is required",
 			})
+			return
 		}
 
 		if req.OrderID == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{
 				Error: "Order ID is required",
 			})
+			return
 		}
 
 		// Create a custom email template with custom data macros
@@ -287,18 +284,20 @@ Content-Transfer-Encoding: 8bit
 			magicLink := fmt.Sprintf("%s/auth/verify?token=%s", config.ServerAddr, token)
 
 			// Return the magic link in the response
-			return c.JSON(http.StatusOK, EmailResponse{
+			writeJSON(w, http.StatusOK, EmailResponse{
 				Message:   "Development mode: Custom magic link generated",
 				MagicLink: magicLink,
 			})
+			return
 		}
 
 		// Generate a token using the token manager
 		generatedToken, err := ml.TokenManager.Generate(req.To)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to generate token: " + err.Error(),
 			})
+			return
 		}
 
 		// Create CustomEmailData instance
@@ -311,26 +310,28 @@ Content-Transfer-Encoding: 8bit
 		// Use SendMagicLinkWithTemplateAndData to send the email with custom data
 		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, customData, req.Preview)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send custom email: " + err.Error(),
 			})
+			return
 		}
 
 		// Return response based on preview mode
 		if req.Preview {
-			return c.JSON(http.StatusOK, EmailResponse{
+			writeJSON(w, http.StatusOK, EmailResponse{
 				Message:        "Custom email preview generated successfully",
 				PreviewContent: previewContent,
 			})
 		} else {
-			return c.JSON(http.StatusOK, EmailResponse{
+			writeJSON(w, http.StatusOK, EmailResponse{
 				Message: "Custom email sent successfully",
 			})
 		}
 	})
 
 	// Start the server
-	e.Logger.Fatal(e.Start(":8080"))
+	log.Println("Server started at http://localhost:8080")
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
 // Helper function to get environment variables with fallback

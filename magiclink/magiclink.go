@@ -1,16 +1,15 @@
 // Package magiclink provides a passwordless authentication system using magic links
-// sent via email for Go applications using the Echo web framework.
+// sent via email for Go web applications.
 package magiclink
 
 import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/labstack/echo/v4"
 
 	"github.com/naozine/nz-magic-link/magiclink/handlers"
 	"github.com/naozine/nz-magic-link/magiclink/internal/email"
@@ -83,9 +82,9 @@ type Config struct {
 	LoginSuccessMessage string
 
 	// AllowLogin is a callback function that checks if a user is allowed to log in.
-	// It takes the context and the email address as arguments.
+	// It takes the request and the email address as arguments.
 	// If it returns an error, the login process is aborted and the error message is returned to the user.
-	AllowLogin func(c echo.Context, email string) error
+	AllowLogin func(r *http.Request, email string) error
 
 	// Token storage
 	// UseInMemoryTokens enables in-memory token storage for high-concurrency scenarios.
@@ -159,7 +158,6 @@ func DefaultConfig() Config {
 // methods for the magic link authentication system.
 type MagicLink struct {
 	Config          Config
-	Echo            *echo.Echo
 	DB              storage.Database
 	TokenManager    *token.Manager
 	EmailSender     *email.Sender
@@ -319,12 +317,12 @@ func newMagicLink(config Config, database storage.Database) (*MagicLink, error) 
 	return ml, nil
 }
 
-// RegisterHandlers registers the necessary handlers with the Echo instance.
-func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
-	m.Echo = e
+// Handler returns an http.Handler that serves all magic link authentication routes.
+func (m *MagicLink) Handler() http.Handler {
+	mux := http.NewServeMux()
 
-	// Register the handlers
-	e.POST(m.Config.LoginURL, handlers.LoginHandler(
+	// Register the login handler
+	mux.Handle("POST "+m.Config.LoginURL, handlers.LoginHandler(
 		m.TokenManager,
 		m.EmailSender,
 		m.Config.MaxLoginAttempts,
@@ -339,7 +337,8 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 		m.EmailChecker,
 	))
 
-	e.GET(m.Config.VerifyURL, handlers.VerifyHandler(
+	// Register the verify handler
+	mux.Handle("GET "+m.Config.VerifyURL, handlers.VerifyHandler(
 		m.TokenManager,
 		m.SessionManager,
 		m.Config.RedirectURL,
@@ -347,7 +346,7 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 	))
 
 	// Register the logout handler
-	e.POST("/auth/logout", handlers.LogoutHandler(
+	mux.Handle("POST /auth/logout", handlers.LogoutHandler(
 		m.SessionManager,
 		m.Config.LogoutRedirectURL,
 	))
@@ -355,23 +354,22 @@ func (m *MagicLink) RegisterHandlers(e *echo.Echo) {
 	// Register WebAuthn handlers if enabled
 	if m.Config.WebAuthnEnabled && m.WebAuthnService != nil {
 		webauthnHandlers := handlers.NewWebAuthnHandlers(m.WebAuthnService, *m.SessionManager, WebAuthnClientJS, m.Config.WebAuthnRedirectURL)
-		webauthnHandlers.RegisterRoutes(e)
+		mux.Handle("/webauthn/", http.StripPrefix("/webauthn", webauthnHandlers.Handler()))
 	}
-}
 
-// AuthMiddleware returns a middleware that checks if the user is authenticated.
-func (m *MagicLink) AuthMiddleware() echo.MiddlewareFunc {
-	return handlers.AuthMiddleware(m.SessionManager)
+	return mux
 }
 
 // Logout invalidates the user's session.
-func (m *MagicLink) Logout(c echo.Context) error {
-	return m.SessionManager.Invalidate(c)
+func (m *MagicLink) Logout(w http.ResponseWriter, r *http.Request) error {
+	return m.SessionManager.Invalidate(w, r)
 }
 
-// GetUserID returns the user ID from the session.
-func (m *MagicLink) GetUserID(c echo.Context) (string, bool) {
-	userID, authenticated, _ := m.SessionManager.Validate(c)
+// ValidateSession checks the session cookie and returns the user ID and authentication state
+// without writing anything to the response. Use this to check authentication status and
+// build your own middleware or conditional logic in handlers.
+func (m *MagicLink) ValidateSession(r *http.Request) (userID string, authenticated bool) {
+	userID, authenticated, _ = m.SessionManager.ValidateReadOnly(r)
 	return userID, authenticated
 }
 
@@ -439,4 +437,3 @@ func (m *MagicLink) loadDevBypassEmails(filePath string) (err error) {
 
 	return nil
 }
-

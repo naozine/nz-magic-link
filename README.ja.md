@@ -1,17 +1,56 @@
-# Magic Link Authentication for Go/Echo
+# Magic Link Authentication for Go
 
-Go アプリケーション向けの、シンプルで安全なパスワードレス認証ライブラリです。Echo Web フレームワークと統合し、メールによるマジックリンク認証と WebAuthn/Passkey 認証を提供します。
+Go Web アプリケーション向けの、シンプルで安全なパスワードレス認証ライブラリです。メールによるマジックリンク認証と WebAuthn/Passkey 認証を提供します。net/http、Echo、Chi、Gin など、あらゆる HTTP フレームワークで利用できます。
 
 ## 特徴
 
 - **パスワードレス認証**: メールでマジックリンクを送信し、安全にログイン
 - **WebAuthn/Passkey 対応**: 指紋・顔認証などのパスキー認証（オプション）
-- **複数ストレージバックエンド**: SQLite（純Go、CGo不要）と LevelDB
+- **SQLite ストレージ**: 純 Go 実装の SQLite（CGo不要）
 - **インメモリトークンストレージ**: 高同時接続シナリオ向けの高性能モード（オプション）
 - **デフォルトでセキュア**: トークンとセッションのセキュリティベストプラクティスを実装
 - **レートリミット**: 設定可能なレート制限による不正利用防止
 - **カスタマイズ可能**: トークン、セッション、メールの柔軟な設定
-- **Echo 統合**: Echo Web アプリケーションへの簡単な統合
+- **フレームワーク非依存**: net/http、Echo、Chi、Gin など、あらゆる Go HTTP フレームワークで利用可能
+
+## v0.4.0 への移行
+
+v0.4.0 では Echo フレームワークへの依存を削除しました。標準の `net/http` 型を使用するようになり、あらゆる Go HTTP フレームワークと互換性があります。
+
+### 破壊的変更
+
+1. **Echo 依存を削除** — すべての公開 API が `echo.Context` ではなく `net/http` の型を使用
+2. **`RegisterHandlers(e *echo.Echo)`** → **`Handler() http.Handler`** — ルーターにマウントする `http.Handler` を返す
+3. **`AuthMiddleware()` と `GetUserID()` を削除** → **`ValidateSession(r *http.Request)`** — 未認証ユーザーをブロックせずに認証状態を確認。必要に応じて自前のミドルウェアを作成可能
+4. **`Logout(c echo.Context)`** → **`Logout(w http.ResponseWriter, r *http.Request)`**
+5. **`Config.AllowLogin`** のコールバックシグネチャが `func(echo.Context, string) error` から `func(*http.Request, string) error` に変更
+6. **ロギング** が Echo の `c.Logger()` から `log/slog` に変更 — `slog.SetDefault()` でカスタマイズ可能
+
+### 移行例
+
+```go
+// 変更前（v0.3.x、Echo 使用）
+e := echo.New()
+ml.RegisterHandlers(e)
+protected := e.Group("/dashboard")
+protected.Use(ml.AuthMiddleware())
+protected.GET("", func(c echo.Context) error {
+    userID, _ := ml.GetUserID(c)
+    // ...
+})
+
+// 変更後（v0.4.0、net/http 使用）
+mux := http.NewServeMux()
+mux.Handle("/auth/", ml.Handler())
+mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+    userID, ok := ml.ValidateSession(r)
+    if !ok {
+        http.Redirect(w, r, "/login", http.StatusFound)
+        return
+    }
+    // ...
+})
+```
 
 ## v0.3.0 への移行
 
