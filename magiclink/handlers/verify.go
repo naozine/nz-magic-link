@@ -1,25 +1,30 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/labstack/echo/v4"
-
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
 
+// contextKey is an unexported type for context keys to avoid collisions.
+type contextKey string
+
+// UserIDKey is the context key for the authenticated user ID.
+const UserIDKey contextKey = "userID"
+
 // VerifyHandler handles the verification of magic links.
 // redirectURL is the success redirect URL.
 // errorRedirectURL is the error redirect URL used when verification fails or token is missing.
-func VerifyHandler(tokenManager *token.Manager, sessionManager *session.Manager, redirectURL string, errorRedirectURL string) echo.HandlerFunc {
-	return func(c echo.Context) error {
+func VerifyHandler(tokenManager *token.Manager, sessionManager *session.Manager, redirectURL string, errorRedirectURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Helper: choose an effective error redirect (allow query override if valid)
 		effectiveErrorRedirect := func(defaultURL string) string {
-			override := c.QueryParam("error_redirect")
+			override := r.URL.Query().Get("error_redirect")
 			if override != "" {
 				u, err := url.Parse(override)
 				if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
@@ -30,13 +35,15 @@ func VerifyHandler(tokenManager *token.Manager, sessionManager *session.Manager,
 		}(errorRedirectURL)
 
 		// Get the token from the query string
-		tokenValue := c.QueryParam("token")
+		tokenValue := r.URL.Query().Get("token")
 		if tokenValue == "" {
 			code, httpStatus, desc := mapError("Token is required")
 			if effectiveErrorRedirect != "" {
-				return c.Redirect(http.StatusFound, buildErrorRedirectURL(effectiveErrorRedirect, code, desc, httpStatus))
+				http.Redirect(w, r, buildErrorRedirectURL(effectiveErrorRedirect, code, desc, httpStatus), http.StatusFound)
+				return
 			}
-			return c.JSON(httpStatus, ErrorResponse{Error: desc})
+			writeJSON(w, httpStatus, ErrorResponse{Error: desc})
+			return
 		}
 
 		// Validate the token (without marking as used)
@@ -44,26 +51,31 @@ func VerifyHandler(tokenManager *token.Manager, sessionManager *session.Manager,
 		if err != nil {
 			code, httpStatus, desc := mapError(err.Error())
 			if effectiveErrorRedirect != "" {
-				return c.Redirect(http.StatusFound, buildErrorRedirectURL(effectiveErrorRedirect, code, desc, httpStatus))
+				http.Redirect(w, r, buildErrorRedirectURL(effectiveErrorRedirect, code, desc, httpStatus), http.StatusFound)
+				return
 			}
-			return c.JSON(httpStatus, ErrorResponse{Error: desc})
+			writeJSON(w, httpStatus, ErrorResponse{Error: desc})
+			return
 		}
 
 		// Mark token as used and create session atomically
-		if err := sessionManager.CreateWithTokenUsed(c, email, tokenHash); err != nil {
+		if err := sessionManager.CreateWithTokenUsed(w, r, email, tokenHash); err != nil {
 			code, httpStatus, desc := mapError(err.Error())
 			if effectiveErrorRedirect != "" {
-				return c.Redirect(http.StatusFound, buildErrorRedirectURL(effectiveErrorRedirect, code, desc, httpStatus))
+				http.Redirect(w, r, buildErrorRedirectURL(effectiveErrorRedirect, code, desc, httpStatus), http.StatusFound)
+				return
 			}
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: desc})
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: desc})
+			return
 		}
 
 		// Redirect to the specified URL or return a success response
 		if redirectURL != "" {
-			return c.Redirect(http.StatusFound, redirectURL)
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
 		}
 
-		return c.JSON(http.StatusOK, map[string]string{
+		writeJSON(w, http.StatusOK, map[string]string{
 			"message": "Authentication successful",
 			"email":   email,
 		})
@@ -104,45 +116,48 @@ func buildErrorRedirectURL(base string, code string, description string, httpCod
 }
 
 // AuthMiddleware creates a middleware that checks if the user is authenticated.
-func AuthMiddleware(sessionManager *session.Manager) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+func AuthMiddleware(sessionManager *session.Manager) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Validate the session
-			userID, authenticated, err := sessionManager.Validate(c)
+			userID, authenticated, err := sessionManager.Validate(w, r)
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 					Error: "Failed to validate session",
 				})
+				return
 			}
 
 			if !authenticated {
-				return c.JSON(http.StatusUnauthorized, ErrorResponse{
+				writeJSON(w, http.StatusUnauthorized, ErrorResponse{
 					Error: "Unauthorized",
 				})
+				return
 			}
 
-			// Set the user ID in the context
-			c.Set("userID", userID)
-			return next(c)
-		}
+			// Set the user ID in the request context
+			ctx := context.WithValue(r.Context(), UserIDKey, userID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
 }
 
 // LogoutHandler handles user logout by invalidating the session.
 // It accepts a redirectURL parameter to redirect the user after successful logout.
 // The redirectURL can be overridden by a "redirect" query parameter.
-func LogoutHandler(sessionManager *session.Manager, redirectURL string) echo.HandlerFunc {
-	return func(c echo.Context) error {
+func LogoutHandler(sessionManager *session.Manager, redirectURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Invalidate the session
-		err := sessionManager.Invalidate(c)
+		err := sessionManager.Invalidate(w, r)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to logout",
 			})
+			return
 		}
 
 		// Check if there's a redirect query parameter
-		queryRedirect := c.QueryParam("redirect")
+		queryRedirect := r.URL.Query().Get("redirect")
 		if queryRedirect != "" {
 			// Override the default redirect URL with the query parameter
 			redirectURL = queryRedirect
@@ -150,10 +165,11 @@ func LogoutHandler(sessionManager *session.Manager, redirectURL string) echo.Han
 
 		// Redirect to the specified URL or return a success response
 		if redirectURL != "" {
-			return c.Redirect(http.StatusFound, redirectURL)
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
 		}
 
-		return c.JSON(http.StatusOK, map[string]string{
+		writeJSON(w, http.StatusOK, map[string]string{
 			"message": "Logged out successfully",
 		})
 	}

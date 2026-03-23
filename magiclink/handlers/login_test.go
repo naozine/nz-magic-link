@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v4"
-
 	"github.com/naozine/nz-magic-link/magiclink/internal/email"
 	"github.com/naozine/nz-magic-link/magiclink/internal/emailcheck"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
@@ -37,7 +35,6 @@ func TestLoginHandler_ConcurrentAccess_RateLimiter(t *testing.T) {
 		nil,   // emailChecker
 	)
 
-	e := echo.New()
 	var wg sync.WaitGroup
 	const goroutines = 100
 
@@ -50,8 +47,7 @@ func TestLoginHandler_ConcurrentAccess_RateLimiter(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Forwarded-For", fmt.Sprintf("10.0.0.%d", i%256))
 			rec := httptest.NewRecorder()
-			c := e.NewContext(req, rec)
-			_ = handler(c)
+			handler.ServeHTTP(rec, req)
 		}(i)
 	}
 
@@ -121,7 +117,7 @@ func TestIsDevBypass_EmptyInputs(t *testing.T) {
 	}
 }
 
-func newTestLoginHandler(checker *emailcheck.Checker) echo.HandlerFunc {
+func newTestLoginHandler(checker *emailcheck.Checker) http.HandlerFunc {
 	db := newMockDB()
 	tokenMgr := token.New(db, 15*time.Minute)
 	emailSender := email.New(email.Config{})
@@ -152,9 +148,8 @@ func TestLoginHandler_BlacklistedDomain(t *testing.T) {
 		},
 	})
 
-	e := echo.New()
 	handler := newTestLoginHandler(checker)
-	rec := postJSON(e, handler, `{"email":"user@mailinator.com"}`)
+	rec := postJSONRequest(handler, `{"email":"user@mailinator.com"}`)
 
 	// Should return 200 success (not reveal that it was blocked)
 	if rec.Code != http.StatusOK {
@@ -181,9 +176,8 @@ func TestLoginHandler_WhitelistedDomain(t *testing.T) {
 		ValidateMX:       true,
 	})
 
-	e := echo.New()
 	handler := newTestLoginHandler(checker)
-	rec := postJSON(e, handler, `{"email":"test@example.com"}`)
+	rec := postJSONRequest(handler, `{"email":"test@example.com"}`)
 
 	// Should return 200 with magic_link (bypass mode)
 	if rec.Code != http.StatusOK {
@@ -197,9 +191,8 @@ func TestLoginHandler_WhitelistedDomain(t *testing.T) {
 }
 
 func TestLoginHandler_NilChecker(t *testing.T) {
-	e := echo.New()
 	handler := newTestLoginHandler(nil)
-	rec := postJSON(e, handler, `{"email":"test@example.com"}`)
+	rec := postJSONRequest(handler, `{"email":"test@example.com"}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)

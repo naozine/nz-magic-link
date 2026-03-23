@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/labstack/echo/v4"
 	"github.com/naozine/nz-magic-link/magiclink/internal/storage"
 )
 
@@ -40,7 +39,7 @@ func New(db storage.Database, config Config) *Manager {
 }
 
 // Create creates a new session for the given user ID and sets a cookie in the response.
-func (m *Manager) Create(c echo.Context, userID string) error {
+func (m *Manager) Create(w http.ResponseWriter, r *http.Request, userID string) error {
 	// Generate a secure session ID
 	sessionID, err := generateSecureToken(32)
 	if err != nil {
@@ -59,12 +58,12 @@ func (m *Manager) Create(c echo.Context, userID string) error {
 		return fmt.Errorf("failed to save session: %w", err)
 	}
 
-	m.setCookie(c, sessionID, expiresAt)
+	m.setCookie(w, sessionID, expiresAt)
 	return nil
 }
 
 // CreateWithTokenUsed atomically marks a token as used and creates a new session in a single transaction.
-func (m *Manager) CreateWithTokenUsed(c echo.Context, userID string, tokenHash string) error {
+func (m *Manager) CreateWithTokenUsed(w http.ResponseWriter, r *http.Request, userID string, tokenHash string) error {
 	sessionID, err := generateSecureToken(32)
 	if err != nil {
 		return fmt.Errorf("failed to generate session ID: %w", err)
@@ -78,14 +77,14 @@ func (m *Manager) CreateWithTokenUsed(c echo.Context, userID string, tokenHash s
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	m.setCookie(c, sessionID, expiresAt)
+	m.setCookie(w, sessionID, expiresAt)
 	return nil
 }
 
 // Validate checks if a session is valid and returns the associated user ID if it is.
-func (m *Manager) Validate(c echo.Context) (string, bool, error) {
+func (m *Manager) Validate(w http.ResponseWriter, r *http.Request) (string, bool, error) {
 	// Get the session cookie
-	cookie, err := c.Cookie(m.Config.CookieName)
+	cookie, err := r.Cookie(m.Config.CookieName)
 	if err != nil {
 		return "", false, nil // No error, just no valid session
 	}
@@ -115,16 +114,16 @@ func (m *Manager) Validate(c echo.Context) (string, bool, error) {
 	// Rolling expiration: extend expiry and update cookie (best-effort)
 	newExpiresAt := now.Add(m.Config.SessionExpiry)
 	if err := m.DB.UpdateSessionExpiry(sessionHash, newExpiresAt); err == nil {
-		m.setCookie(c, cookie.Value, newExpiresAt)
+		m.setCookie(w, cookie.Value, newExpiresAt)
 	}
 
 	return userID, true, nil
 }
 
 // Invalidate removes the session from the database and clears the session cookie.
-func (m *Manager) Invalidate(c echo.Context) error {
+func (m *Manager) Invalidate(w http.ResponseWriter, r *http.Request) error {
 	// Get the session cookie
-	cookie, err := c.Cookie(m.Config.CookieName)
+	cookie, err := r.Cookie(m.Config.CookieName)
 	if err != nil {
 		return nil // No error, just no valid session to invalidate
 	}
@@ -150,7 +149,7 @@ func (m *Manager) Invalidate(c echo.Context) error {
 		HttpOnly: m.Config.CookieHTTPOnly,
 	}
 
-	c.SetCookie(expiredCookie)
+	http.SetCookie(w, expiredCookie)
 	return nil
 }
 
@@ -160,7 +159,7 @@ func (m *Manager) CleanupExpired() error {
 }
 
 // setCookie sets a session cookie on the response.
-func (m *Manager) setCookie(c echo.Context, sessionID string, expiresAt time.Time) {
+func (m *Manager) setCookie(w http.ResponseWriter, sessionID string, expiresAt time.Time) {
 	cookie := &http.Cookie{
 		Name:     m.Config.CookieName,
 		Value:    sessionID,
@@ -180,7 +179,7 @@ func (m *Manager) setCookie(c echo.Context, sessionID string, expiresAt time.Tim
 		cookie.SameSite = http.SameSiteNoneMode
 	}
 
-	c.SetCookie(cookie)
+	http.SetCookie(w, cookie)
 }
 
 // generateSecureToken generates a cryptographically secure random token.

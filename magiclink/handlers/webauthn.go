@@ -3,11 +3,11 @@ package handlers
 import (
 	"embed"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/mail"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/labstack/echo/v4"
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
 )
 
@@ -78,95 +78,105 @@ type LoginFinishResponse struct {
 }
 
 // RegisterStart handles the start of passkey registration
-func (h *WebAuthnHandlers) RegisterStart(c echo.Context) error {
+func (h *WebAuthnHandlers) RegisterStart(w http.ResponseWriter, r *http.Request) {
 	var req RegisterStartRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format",
 		})
+		return
 	}
 
 	if req.Email == "" {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Email is required",
 		})
+		return
 	}
 
 	if _, err := mail.ParseAddress(req.Email); err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid email format",
 		})
+		return
 	}
 
 	options, challengeID, err := h.webauthn.BeginRegistration(req.Email)
 	if err != nil {
-		c.Logger().Errorf("BeginRegistration failed: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+		slog.Error("BeginRegistration failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to start registration",
 		})
+		return
 	}
 
-	c.Logger().Debugf("BeginRegistration successful - ChallengeID: %s", challengeID)
+	slog.Debug("BeginRegistration successful", "challenge_id", challengeID)
 
-	return c.JSON(http.StatusOK, RegisterStartResponse{
+	writeJSON(w, http.StatusOK, RegisterStartResponse{
 		ChallengeID: challengeID,
 		Options:     options,
 	})
 }
 
 // RegisterFinish handles the completion of passkey registration
-func (h *WebAuthnHandlers) RegisterFinish(c echo.Context) error {
+func (h *WebAuthnHandlers) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	var req RegisterFinishRequest
-	if err := c.Bind(&req); err != nil {
-		c.Logger().Errorf("RegisterFinish: Failed to bind request: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+	if err := readJSON(r, &req); err != nil {
+		slog.Error("RegisterFinish: Failed to bind request", "error", err)
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format",
 		})
+		return
 	}
 
 	if req.ChallengeID == "" {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Challenge ID is required",
 		})
+		return
 	}
 
 	if len(req.Response) == 0 {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "WebAuthn response is required",
 		})
+		return
 	}
 
 	parsedResponse, err := protocol.ParseCredentialCreationResponseBytes(req.Response)
 	if err != nil {
-		c.Logger().Errorf("RegisterFinish: Failed to parse WebAuthn response: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		slog.Error("RegisterFinish: Failed to parse WebAuthn response", "error", err)
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Failed to parse WebAuthn response",
 		})
+		return
 	}
 
 	if err := h.webauthn.FinishRegistration(req.ChallengeID, parsedResponse); err != nil {
-		c.Logger().Errorf("RegisterFinish: FinishRegistration failed: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+		slog.Error("RegisterFinish: FinishRegistration failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to complete passkey registration",
 		})
+		return
 	}
 
-	c.Logger().Infof("RegisterFinish: Passkey registration completed - ChallengeID: %s", req.ChallengeID)
+	slog.Info("RegisterFinish: Passkey registration completed", "challenge_id", req.ChallengeID)
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Passkey registration completed successfully",
 	})
 }
 
 // LoginStart handles the start of passkey authentication
-func (h *WebAuthnHandlers) LoginStart(c echo.Context) error {
+func (h *WebAuthnHandlers) LoginStart(w http.ResponseWriter, r *http.Request) {
 	var req LoginStartRequest
-	if err := c.Bind(&req); err != nil {
-		c.Logger().Errorf("LoginStart: Failed to bind request: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+	if err := readJSON(r, &req); err != nil {
+		slog.Error("LoginStart: Failed to bind request", "error", err)
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format",
 		})
+		return
 	}
 
 	var options *protocol.CredentialAssertion
@@ -180,113 +190,125 @@ func (h *WebAuthnHandlers) LoginStart(c echo.Context) error {
 	}
 
 	if err != nil {
-		c.Logger().Errorf("LoginStart: Failed to start login: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+		slog.Error("LoginStart: Failed to start login", "error", err)
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to start login",
 		})
+		return
 	}
 
-	c.Logger().Debugf("LoginStart: Challenge created - ChallengeID: %s", challengeID)
+	slog.Debug("LoginStart: Challenge created", "challenge_id", challengeID)
 
-	return c.JSON(http.StatusOK, LoginStartResponse{
+	writeJSON(w, http.StatusOK, LoginStartResponse{
 		ChallengeID: challengeID,
 		Options:     options,
 	})
 }
 
 // DiscoverableLoginStart handles the start of discoverable (userless) authentication
-func (h *WebAuthnHandlers) DiscoverableLoginStart(c echo.Context) error {
+func (h *WebAuthnHandlers) DiscoverableLoginStart(w http.ResponseWriter, r *http.Request) {
 	options, challengeID, err := h.webauthn.BeginDiscoverableLogin()
 	if err != nil {
-		c.Logger().Errorf("DiscoverableLoginStart: Failed to start discoverable login: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+		slog.Error("DiscoverableLoginStart: Failed to start discoverable login", "error", err)
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to start discoverable login",
 		})
+		return
 	}
 
-	c.Logger().Debugf("DiscoverableLoginStart: Challenge created - ChallengeID: %s", challengeID)
+	slog.Debug("DiscoverableLoginStart: Challenge created", "challenge_id", challengeID)
 
-	return c.JSON(http.StatusOK, LoginStartResponse{
+	writeJSON(w, http.StatusOK, LoginStartResponse{
 		ChallengeID: challengeID,
 		Options:     options,
 	})
 }
 
 // LoginFinish handles the completion of passkey authentication
-func (h *WebAuthnHandlers) LoginFinish(c echo.Context) error {
+func (h *WebAuthnHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 	var req LoginFinishRequest
-	if err := c.Bind(&req); err != nil {
-		c.Logger().Errorf("LoginFinish: Failed to bind request: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+	if err := readJSON(r, &req); err != nil {
+		slog.Error("LoginFinish: Failed to bind request", "error", err)
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format",
 		})
+		return
 	}
 
 	if req.ChallengeID == "" {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Challenge ID is required",
 		})
+		return
 	}
 
 	if len(req.Response) == 0 {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "WebAuthn response is required",
 		})
+		return
 	}
 
 	parsedResponse, err := protocol.ParseCredentialRequestResponseBytes(req.Response)
 	if err != nil {
-		c.Logger().Errorf("LoginFinish: Failed to parse WebAuthn response: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
+		slog.Error("LoginFinish: Failed to parse WebAuthn response", "error", err)
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "Failed to parse WebAuthn response",
 		})
+		return
 	}
 
 	userID, err := h.webauthn.FinishLogin(req.ChallengeID, parsedResponse)
 	if err != nil {
-		c.Logger().Errorf("LoginFinish: FinishLogin failed: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+		slog.Error("LoginFinish: FinishLogin failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to complete passkey authentication",
 		})
+		return
 	}
 
-	if err := h.sessionManager.Create(c, userID); err != nil {
-		c.Logger().Errorf("LoginFinish: Failed to create session: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+	if err := h.sessionManager.Create(w, r, userID); err != nil {
+		slog.Error("LoginFinish: Failed to create session", "error", err)
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to create user session",
 		})
+		return
 	}
 
-	c.Logger().Infof("LoginFinish: Authentication completed for user: %s", userID)
+	slog.Info("LoginFinish: Authentication completed", "user_id", userID)
 
-	return c.JSON(http.StatusOK, LoginFinishResponse{
+	writeJSON(w, http.StatusOK, LoginFinishResponse{
 		Success:     true,
 		RedirectURL: h.successRedirectURL,
 	})
 }
 
 // ServeClientScript handles the request for the WebAuthn client script
-func (h *WebAuthnHandlers) ServeClientScript(c echo.Context) error {
+func (h *WebAuthnHandlers) ServeClientScript(w http.ResponseWriter, r *http.Request) {
 	data, err := h.clientScriptFS.ReadFile("static/webauthn.js")
 	if err != nil {
-		c.Logger().Errorf("ServeClientScript: Failed to read script file: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+		slog.Error("ServeClientScript: Failed to read script file", "error", err)
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to load client script",
 		})
+		return
 	}
-	return c.Blob(http.StatusOK, "application/javascript", data)
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Write(data)
 }
 
-// RegisterRoutes registers all WebAuthn routes
-func (h *WebAuthnHandlers) RegisterRoutes(e *echo.Echo) {
-	webauthn := e.Group("/webauthn")
+// Handler returns an http.Handler that serves all WebAuthn routes.
+func (h *WebAuthnHandlers) Handler() http.Handler {
+	mux := http.NewServeMux()
 
-	webauthn.POST("/register/start", h.RegisterStart)
-	webauthn.POST("/register/finish", h.RegisterFinish)
+	mux.HandleFunc("POST /register/start", h.RegisterStart)
+	mux.HandleFunc("POST /register/finish", h.RegisterFinish)
 
-	webauthn.POST("/login/start", h.LoginStart)
-	webauthn.POST("/login/finish", h.LoginFinish)
-	webauthn.POST("/login/discoverable", h.DiscoverableLoginStart)
+	mux.HandleFunc("POST /login/start", h.LoginStart)
+	mux.HandleFunc("POST /login/finish", h.LoginFinish)
+	mux.HandleFunc("POST /login/discoverable", h.DiscoverableLoginStart)
 
-	webauthn.GET("/static/webauthn.js", h.ServeClientScript)
+	mux.HandleFunc("GET /static/webauthn.js", h.ServeClientScript)
+
+	return mux
 }

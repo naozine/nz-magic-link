@@ -1,6 +1,6 @@
-# Magic Link Authentication for Go/Echo
+# Magic Link Authentication for Go
 
-A simple, secure passwordless authentication library for Go applications using the Echo web framework. This library provides magic link authentication via email and optional WebAuthn/Passkey support, allowing users to sign in without passwords.
+A simple, secure passwordless authentication library for Go web applications. This library provides magic link authentication via email and optional WebAuthn/Passkey support, allowing users to sign in without passwords. Works with any HTTP framework (net/http, Echo, Chi, Gin, etc.).
 
 ## Features
 
@@ -11,7 +11,44 @@ A simple, secure passwordless authentication library for Go applications using t
 - **Secure by Default**: Implements security best practices for tokens and sessions
 - **Rate Limiting**: Prevents abuse with configurable rate limits
 - **Customizable**: Flexible configuration for tokens, sessions, and emails
-- **Echo Integration**: Easy to integrate with Echo web applications
+- **Framework Agnostic**: Works with net/http, Echo, Chi, Gin, or any Go HTTP framework
+
+## Migrating to v0.4.0
+
+v0.4.0 removes the Echo framework dependency. The library now uses standard `net/http` types, making it compatible with any Go HTTP framework.
+
+### Breaking Changes
+
+1. **Echo dependency removed** — All public APIs now use `net/http` types instead of `echo.Context`
+2. **`RegisterHandlers(e *echo.Echo)`** → **`Handler() http.Handler`** — Returns an `http.Handler` that you mount on your router
+3. **`AuthMiddleware() echo.MiddlewareFunc`** → **`AuthMiddleware(next http.Handler) http.Handler`** — Standard middleware signature
+4. **`GetUserID(c echo.Context)`** → **`GetUserID(r *http.Request)`** — Reads from request context
+5. **`Logout(c echo.Context)`** → **`Logout(w http.ResponseWriter, r *http.Request)`**
+6. **`Config.AllowLogin`** callback signature changed from `func(echo.Context, string) error` to `func(*http.Request, string) error`
+7. **Logging** changed from Echo's `c.Logger()` to `log/slog` — customize via `slog.SetDefault()`
+
+### Migration Example
+
+```go
+// Before (v0.3.x with Echo)
+e := echo.New()
+ml.RegisterHandlers(e)
+protected := e.Group("/dashboard")
+protected.Use(ml.AuthMiddleware())
+
+// After (v0.4.0 with net/http)
+mux := http.NewServeMux()
+mux.Handle("/auth/", ml.Handler())
+mux.Handle("/dashboard", ml.AuthMiddleware(dashboardHandler))
+
+// After (v0.4.0 with Echo)
+e := echo.New()
+e.Any("/auth/*", echo.WrapHandler(ml.Handler()))
+
+// After (v0.4.0 with Chi)
+r := chi.NewRouter()
+r.Mount("/auth", ml.Handler())
+```
 
 ## Migrating to v0.3.0
 

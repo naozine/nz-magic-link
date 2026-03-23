@@ -1,23 +1,17 @@
 package main
 
 import (
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"text/template"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"github.com/naozine/nz-magic-link/magiclink"
 )
 
+var templates = template.Must(template.ParseGlob("examples/webauthn-simple/views/*.html"))
+
 func main() {
-	e := echo.New()
-
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-
 	config := magiclink.DefaultConfig()
 	config.DatabasePath = "magiclink.db"
 	config.DatabaseType = "sqlite"
@@ -39,29 +33,28 @@ func main() {
 	}
 	defer ml.Close()
 
-	ml.RegisterHandlers(e)
+	mux := http.NewServeMux()
 
-	t := &Template{
-		templates: template.Must(template.ParseGlob("examples/webauthn-simple/views/*.html")),
-	}
-	e.Renderer = t
+	// Register the authentication handlers
+	mux.Handle("/auth/", ml.Handler())
+	mux.Handle("/webauthn/", ml.Handler())
 
 	// Home / Login page
-	e.GET("/", func(c echo.Context) error {
-		userID, authenticated := ml.GetUserID(c)
-		return c.Render(http.StatusOK, "index.html", map[string]interface{}{
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		userID, authenticated := ml.GetUserID(r)
+		templates.ExecuteTemplate(w, "index.html", map[string]interface{}{
 			"Authenticated": authenticated,
 			"UserID":        userID,
 		})
 	})
 
 	// Protected route
-	e.GET("/dashboard", func(c echo.Context) error {
-		userID, _ := ml.GetUserID(c)
-		return c.Render(http.StatusOK, "dashboard.html", map[string]interface{}{
+	mux.Handle("GET /dashboard", ml.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, _ := ml.GetUserID(r)
+		templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
 			"UserID": userID,
 		})
-	}, ml.AuthMiddleware())
+	})))
 
 	// Create bypass file if not exists
 	if _, err := os.Stat(".bypass_emails"); os.IsNotExist(err) {
@@ -69,13 +62,5 @@ func main() {
 	}
 
 	log.Println("Server started at http://localhost:8080")
-	log.Fatal(e.Start(":8080"))
-}
-
-type Template struct {
-	templates *template.Template
-}
-
-func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }
