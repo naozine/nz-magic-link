@@ -55,12 +55,8 @@ Content-Transfer-Encoding: 8bit
 {{.FromNameOriginal}}
 `
 
-	config.DatabasePath = "level.db"
-	config.DatabaseType = "leveldb"
-	config.DatabaseOptions = map[string]string{
-		"block_cache_capacity": "33554432", // 32MB
-		"write_buffer":         "16777216", // 16MB
-	}
+	config.DatabasePath = "magiclink.db"
+	config.DatabaseType = "sqlite"
 
 	// Create a new MagicLink instance
 	ml, err := magiclink.New(config)

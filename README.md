@@ -6,7 +6,7 @@ A simple, secure passwordless authentication library for Go web applications. Th
 
 - **Passwordless Authentication**: Send magic links via email for secure, passwordless login
 - **WebAuthn/Passkey Support**: Optional passkey authentication (fingerprint, face recognition, etc.)
-- **Multiple Storage Backends**: SQLite (pure Go, no CGo) and LevelDB
+- **SQLite Storage**: Pure Go SQLite (no CGo required)
 - **In-Memory Token Storage**: Optional high-performance mode for high-concurrency scenarios
 - **Secure by Default**: Implements security best practices for tokens and sessions
 - **Rate Limiting**: Prevents abuse with configurable rate limits

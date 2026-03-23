@@ -15,41 +15,19 @@ import (
 
 const (
 	testSQLiteDBPath = "test_benchmark_sqlite.db"
-	testLevelDBPath  = "test_benchmark_leveldb"
 )
 
-func setupTestDB(dbType string) (storage.Database, func()) {
-	var config storage.Config
-	var cleanupPath string
-
-	switch dbType {
-	case "sqlite":
-		_ = os.Remove(testSQLiteDBPath)
-		config = storage.Config{
-			Type: "sqlite",
-			Path: testSQLiteDBPath,
-			Options: map[string]string{
-				"journal_mode": "WAL",
-				"synchronous":  "NORMAL",
-				"cache_size":   "10000",
-				"temp_store":   "memory",
-			},
-		}
-		cleanupPath = testSQLiteDBPath
-	case "leveldb":
-		_ = os.RemoveAll(testLevelDBPath)
-		config = storage.Config{
-			Type: "leveldb",
-			Path: testLevelDBPath,
-			Options: map[string]string{
-				"block_cache_capacity":  "33554432", // 32MB
-				"write_buffer":          "16777216", // 16MB
-				"compaction_table_size": "8388608",  // 8MB
-			},
-		}
-		cleanupPath = testLevelDBPath
-	default:
-		log.Fatalf("Unsupported database type: %s", dbType)
+func setupTestDB() (storage.Database, func()) {
+	_ = os.Remove(testSQLiteDBPath)
+	config := storage.Config{
+		Type: "sqlite",
+		Path: testSQLiteDBPath,
+		Options: map[string]string{
+			"journal_mode": "WAL",
+			"synchronous":  "NORMAL",
+			"cache_size":   "10000",
+			"temp_store":   "memory",
+		},
 	}
 
 	factory := storage.NewFactory()
@@ -64,28 +42,15 @@ func setupTestDB(dbType string) (storage.Database, func()) {
 
 	cleanup := func() {
 		_ = database.Close()
-		if dbType == "sqlite" {
-			_ = os.Remove(cleanupPath)
-		} else {
-			_ = os.RemoveAll(cleanupPath)
-		}
+		_ = os.Remove(testSQLiteDBPath)
 	}
 
 	return database, cleanup
 }
 
-// BenchmarkTokenGeneration_SQLite tests token generation performance with SQLite
-func BenchmarkTokenGeneration_SQLite(b *testing.B) {
-	benchmarkTokenGeneration(b, "sqlite")
-}
-
-// BenchmarkTokenGeneration_LevelDB tests token generation performance with LevelDB
-func BenchmarkTokenGeneration_LevelDB(b *testing.B) {
-	benchmarkTokenGeneration(b, "leveldb")
-}
-
-func benchmarkTokenGeneration(b *testing.B, dbType string) {
-	database, cleanup := setupTestDB(dbType)
+// BenchmarkTokenGeneration tests token generation performance
+func BenchmarkTokenGeneration(b *testing.B) {
+	database, cleanup := setupTestDB()
 	defer cleanup()
 
 	tokenManager := token.New(database, 15*time.Minute)
@@ -104,18 +69,9 @@ func benchmarkTokenGeneration(b *testing.B, dbType string) {
 	})
 }
 
-// BenchmarkTokenValidation_SQLite tests token validation performance with SQLite
-func BenchmarkTokenValidation_SQLite(b *testing.B) {
-	benchmarkTokenValidation(b, "sqlite")
-}
-
-// BenchmarkTokenValidation_LevelDB tests token validation performance with LevelDB
-func BenchmarkTokenValidation_LevelDB(b *testing.B) {
-	benchmarkTokenValidation(b, "leveldb")
-}
-
-func benchmarkTokenValidation(b *testing.B, dbType string) {
-	database, cleanup := setupTestDB(dbType)
+// BenchmarkTokenValidation tests token validation performance
+func BenchmarkTokenValidation(b *testing.B) {
+	database, cleanup := setupTestDB()
 	defer cleanup()
 
 	tokenManager := token.New(database, 15*time.Minute)
@@ -145,29 +101,17 @@ func benchmarkTokenValidation(b *testing.B, dbType string) {
 	})
 }
 
-// TestLoadTest_SQLite simulates concurrent load on the SQLite token system
-func TestLoadTest_SQLite(t *testing.T) {
+// TestLoadTest simulates concurrent load on the token system
+func TestLoadTest(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping load test in short mode")
 	}
-	testLoadTest(t, "sqlite")
-}
 
-// TestLoadTest_LevelDB simulates concurrent load on the LevelDB token system
-func TestLoadTest_LevelDB(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping load test in short mode")
-	}
-	testLoadTest(t, "leveldb")
-}
-
-func testLoadTest(t *testing.T, dbType string) {
-	database, cleanup := setupTestDB(dbType)
+	database, cleanup := setupTestDB()
 	defer cleanup()
 
 	tokenManager := token.New(database, 15*time.Minute)
 
-	// Test scenarios
 	scenarios := []struct {
 		name        string
 		concurrency int
@@ -180,13 +124,13 @@ func testLoadTest(t *testing.T, dbType string) {
 	}
 
 	for _, scenario := range scenarios {
-		t.Run(fmt.Sprintf("%s_%s", scenario.name, dbType), func(t *testing.T) {
-			runLoadTest(t, tokenManager, scenario.concurrency, scenario.duration, scenario.operations, dbType)
+		t.Run(scenario.name, func(t *testing.T) {
+			runLoadTest(t, tokenManager, scenario.concurrency, scenario.duration, scenario.operations)
 		})
 	}
 }
 
-func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ time.Duration, totalOps int, dbType string) {
+func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ time.Duration, totalOps int) {
 	var (
 		successCount int64
 		errorCount   int64
@@ -198,14 +142,12 @@ func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ t
 	start := time.Now()
 	var wg sync.WaitGroup
 
-	// Channel to control operation rate
 	opsChan := make(chan int, totalOps)
 	for i := 0; i < totalOps; i++ {
 		opsChan <- i
 	}
 	close(opsChan)
 
-	// Start workers
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func(workerID int) {
@@ -214,9 +156,7 @@ func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ t
 			for opID := range opsChan {
 				opStart := time.Now()
 
-				// Alternate between generation and validation
 				if opID%2 == 0 {
-					// Generate token
 					email := fmt.Sprintf("worker%d_op%d@example.com", workerID, opID)
 					_, err := tokenManager.Generate(email)
 					if err != nil {
@@ -226,8 +166,6 @@ func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ t
 						atomic.AddInt64(&successCount, 1)
 					}
 				} else {
-					// For validation, we need a pre-existing token
-					// Generate one on the fly for simplicity
 					email := fmt.Sprintf("validate%d_op%d@example.com", workerID, opID)
 					tokenValue, err := tokenManager.Generate(email)
 					if err != nil {
@@ -244,11 +182,9 @@ func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ t
 					}
 				}
 
-				// Record latency
 				latency := time.Since(opStart).Nanoseconds()
 				atomic.AddInt64(&totalLatency, latency)
 
-				// Update min/max latency
 				for {
 					current := atomic.LoadInt64(&maxLatency)
 					if latency <= current || atomic.CompareAndSwapInt64(&maxLatency, current, latency) {
@@ -268,14 +204,12 @@ func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ t
 	wg.Wait()
 	elapsed := time.Since(start)
 
-	// Calculate metrics
 	totalOpsExecuted := atomic.LoadInt64(&successCount) + atomic.LoadInt64(&errorCount)
 	avgLatency := atomic.LoadInt64(&totalLatency) / totalOpsExecuted
 	throughput := float64(totalOpsExecuted) / elapsed.Seconds()
 	errorRate := float64(atomic.LoadInt64(&errorCount)) / float64(totalOpsExecuted) * 100
 
-	// Report results
-	t.Logf("\n=== Load Test Results (%s) ===", dbType)
+	t.Logf("\n=== Load Test Results ===")
 	t.Logf("Concurrency: %d goroutines", concurrency)
 	t.Logf("Duration: %v", elapsed)
 	t.Logf("Total Operations: %d", totalOpsExecuted)
@@ -288,24 +222,13 @@ func runLoadTest(t *testing.T, tokenManager *token.Manager, concurrency int, _ t
 	t.Logf("Max Latency: %.2f ms", float64(atomic.LoadInt64(&maxLatency))/1000000)
 }
 
-// TestConcurrentAccess_SQLite tests database locking behavior under high concurrency with SQLite
-func TestConcurrentAccess_SQLite(t *testing.T) {
+// TestConcurrentAccess tests database locking behavior under high concurrency
+func TestConcurrentAccess(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping concurrent access test in short mode")
 	}
-	testConcurrentAccess(t, "sqlite")
-}
 
-// TestConcurrentAccess_LevelDB tests database locking behavior under high concurrency with LevelDB
-func TestConcurrentAccess_LevelDB(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping concurrent access test in short mode")
-	}
-	testConcurrentAccess(t, "leveldb")
-}
-
-func testConcurrentAccess(t *testing.T, dbType string) {
-	database, cleanup := setupTestDB(dbType)
+	database, cleanup := setupTestDB()
 	defer cleanup()
 
 	tokenManager := token.New(database, 15*time.Minute)
@@ -350,7 +273,7 @@ func testConcurrentAccess(t *testing.T, dbType string) {
 	totalOperations := int64(concurrency * operationsPerWorker)
 	totalErrors := atomic.LoadInt64(&lockErrors) + atomic.LoadInt64(&timeoutErrors) + atomic.LoadInt64(&otherErrors)
 
-	t.Logf("\n=== Concurrent Access Results (%s) ===", dbType)
+	t.Logf("\n=== Concurrent Access Results ===")
 	t.Logf("Concurrency: %d goroutines", concurrency)
 	t.Logf("Operations per worker: %d", operationsPerWorker)
 	t.Logf("Total operations: %d", totalOperations)
