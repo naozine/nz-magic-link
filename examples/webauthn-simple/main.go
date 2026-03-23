@@ -41,7 +41,7 @@ func main() {
 
 	// Home / Login page
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		userID, authenticated := ml.GetUserID(r)
+		userID, authenticated := ml.ValidateSession(r)
 		templates.ExecuteTemplate(w, "index.html", map[string]interface{}{
 			"Authenticated": authenticated,
 			"UserID":        userID,
@@ -49,12 +49,16 @@ func main() {
 	})
 
 	// Protected route
-	mux.Handle("GET /dashboard", ml.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID, _ := ml.GetUserID(r)
+	mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		userID, authenticated := ml.ValidateSession(r)
+		if !authenticated {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
 		templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
 			"UserID": userID,
 		})
-	})))
+	})
 
 	// Create bypass file if not exists
 	if _, err := os.Stat(".bypass_emails"); os.IsNotExist(err) {

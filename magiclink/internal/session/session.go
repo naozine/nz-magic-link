@@ -120,6 +120,33 @@ func (m *Manager) Validate(w http.ResponseWriter, r *http.Request) (string, bool
 	return userID, true, nil
 }
 
+// ValidateReadOnly checks if a session is valid without writing anything to the response.
+// It does not perform rolling expiration updates.
+func (m *Manager) ValidateReadOnly(r *http.Request) (string, bool, error) {
+	cookie, err := r.Cookie(m.Config.CookieName)
+	if err != nil {
+		return "", false, nil
+	}
+
+	sessionHash := hashSession(cookie.Value)
+
+	sessionID, userID, expiresAt, err := m.DB.GetSessionByHash(sessionHash)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get session: %w", err)
+	}
+
+	if sessionID == "" {
+		return "", false, nil
+	}
+
+	if time.Now().After(expiresAt) {
+		_ = m.DB.DeleteSession(sessionHash)
+		return "", false, nil
+	}
+
+	return userID, true, nil
+}
+
 // Invalidate removes the session from the database and clears the session cookie.
 func (m *Manager) Invalidate(w http.ResponseWriter, r *http.Request) error {
 	// Get the session cookie

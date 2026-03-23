@@ -6,7 +6,7 @@ require (
 	github.com/go-webauthn/webauthn v0.16.1
 	github.com/syndtr/goleveldb v1.0.0
 	golang.org/x/time v0.15.0
-	modernc.org/sqlite v1.46.1
+	modernc.org/sqlite v1.47.0
 )
 
 require (

@@ -21,11 +21,10 @@ v0.4.0 removes the Echo framework dependency. The library now uses standard `net
 
 1. **Echo dependency removed** — All public APIs now use `net/http` types instead of `echo.Context`
 2. **`RegisterHandlers(e *echo.Echo)`** → **`Handler() http.Handler`** — Returns an `http.Handler` that you mount on your router
-3. **`AuthMiddleware() echo.MiddlewareFunc`** → **`AuthMiddleware(next http.Handler) http.Handler`** — Standard middleware signature
-4. **`GetUserID(c echo.Context)`** → **`GetUserID(r *http.Request)`** — Reads from request context
-5. **`Logout(c echo.Context)`** → **`Logout(w http.ResponseWriter, r *http.Request)`**
-6. **`Config.AllowLogin`** callback signature changed from `func(echo.Context, string) error` to `func(*http.Request, string) error`
-7. **Logging** changed from Echo's `c.Logger()` to `log/slog` — customize via `slog.SetDefault()`
+3. **`AuthMiddleware()` and `GetUserID()` removed** → **`ValidateSession(r *http.Request)`** — Check authentication status anywhere without blocking unauthenticated users. Build your own middleware with the behavior you need.
+4. **`Logout(c echo.Context)`** → **`Logout(w http.ResponseWriter, r *http.Request)`**
+5. **`Config.AllowLogin`** callback signature changed from `func(echo.Context, string) error` to `func(*http.Request, string) error`
+6. **Logging** changed from Echo's `c.Logger()` to `log/slog` — customize via `slog.SetDefault()`
 
 ### Migration Example
 
@@ -35,19 +34,22 @@ e := echo.New()
 ml.RegisterHandlers(e)
 protected := e.Group("/dashboard")
 protected.Use(ml.AuthMiddleware())
+protected.GET("", func(c echo.Context) error {
+    userID, _ := ml.GetUserID(c)
+    // ...
+})
 
 // After (v0.4.0 with net/http)
 mux := http.NewServeMux()
 mux.Handle("/auth/", ml.Handler())
-mux.Handle("/dashboard", ml.AuthMiddleware(dashboardHandler))
-
-// After (v0.4.0 with Echo)
-e := echo.New()
-e.Any("/auth/*", echo.WrapHandler(ml.Handler()))
-
-// After (v0.4.0 with Chi)
-r := chi.NewRouter()
-r.Mount("/auth", ml.Handler())
+mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+    userID, ok := ml.ValidateSession(r)
+    if !ok {
+        http.Redirect(w, r, "/login", http.StatusFound)
+        return
+    }
+    // ...
+})
 ```
 
 ## Migrating to v0.3.0

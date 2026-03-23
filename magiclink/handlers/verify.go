@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,12 +9,6 @@ import (
 	"github.com/naozine/nz-magic-link/magiclink/internal/session"
 	"github.com/naozine/nz-magic-link/magiclink/internal/token"
 )
-
-// contextKey is an unexported type for context keys to avoid collisions.
-type contextKey string
-
-// UserIDKey is the context key for the authenticated user ID.
-const UserIDKey contextKey = "userID"
 
 // VerifyHandler handles the verification of magic links.
 // redirectURL is the success redirect URL.
@@ -113,33 +106,6 @@ func buildErrorRedirectURL(base string, code string, description string, httpCod
 	q.Set("code", fmt.Sprintf("%d", httpCode))
 	u.RawQuery = q.Encode()
 	return u.String()
-}
-
-// AuthMiddleware creates a middleware that checks if the user is authenticated.
-func AuthMiddleware(sessionManager *session.Manager) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Validate the session
-			userID, authenticated, err := sessionManager.Validate(w, r)
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, ErrorResponse{
-					Error: "Failed to validate session",
-				})
-				return
-			}
-
-			if !authenticated {
-				writeJSON(w, http.StatusUnauthorized, ErrorResponse{
-					Error: "Unauthorized",
-				})
-				return
-			}
-
-			// Set the user ID in the request context
-			ctx := context.WithValue(r.Context(), UserIDKey, userID)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
 }
 
 // LogoutHandler handles user logout by invalidating the session.

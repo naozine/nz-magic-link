@@ -25,11 +25,6 @@ import (
 // compatibility with existing template macros.
 type BaseTemplateData = email.BaseTemplateData
 
-// UserIDKey is the context key for the authenticated user ID.
-// Use this with r.Context().Value(magiclink.UserIDKey) to retrieve the user ID
-// set by AuthMiddleware.
-const UserIDKey = handlers.UserIDKey
-
 // Config holds the configuration for the magic link authentication system.
 type Config struct {
 	// Database configuration
@@ -365,21 +360,17 @@ func (m *MagicLink) Handler() http.Handler {
 	return mux
 }
 
-// AuthMiddleware returns a middleware that checks if the user is authenticated.
-func (m *MagicLink) AuthMiddleware(next http.Handler) http.Handler {
-	return handlers.AuthMiddleware(m.SessionManager)(next)
-}
-
 // Logout invalidates the user's session.
 func (m *MagicLink) Logout(w http.ResponseWriter, r *http.Request) error {
 	return m.SessionManager.Invalidate(w, r)
 }
 
-// GetUserID returns the user ID from the request context.
-// The user ID is set by AuthMiddleware when the user is authenticated.
-func (m *MagicLink) GetUserID(r *http.Request) (string, bool) {
-	userID, ok := r.Context().Value(handlers.UserIDKey).(string)
-	return userID, ok
+// ValidateSession checks the session cookie and returns the user ID and authentication state
+// without writing anything to the response. Use this to check authentication status and
+// build your own middleware or conditional logic in handlers.
+func (m *MagicLink) ValidateSession(r *http.Request) (userID string, authenticated bool) {
+	userID, authenticated, _ = m.SessionManager.ValidateReadOnly(r)
+	return userID, authenticated
 }
 
 // CleanupExpiredTokens removes expired tokens from the database.

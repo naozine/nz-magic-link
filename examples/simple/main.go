@@ -87,8 +87,7 @@ Content-Transfer-Encoding: 8bit
 
 	// Public routes
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		// Check if the user is authenticated
-		userID, authenticated := ml.GetUserID(r)
+		userID, authenticated := ml.ValidateSession(r)
 		templates.ExecuteTemplate(w, "home.html", map[string]interface{}{
 			"authenticated": authenticated,
 			"userID":        userID,
@@ -100,12 +99,16 @@ Content-Transfer-Encoding: 8bit
 	})
 
 	// Protected routes
-	mux.Handle("GET /dashboard", ml.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID, _ := ml.GetUserID(r)
+	mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		userID, authenticated := ml.ValidateSession(r)
+		if !authenticated {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
 		templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
 			"userID": userID,
 		})
-	})))
+	})
 
 	// Start the server
 	log.Println("Server started at http://localhost:8080")
