@@ -11,3 +11,4 @@
 /.bypass_emails
 /.env
 /simple
+/examples/resend/resend
