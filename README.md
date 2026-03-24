@@ -170,7 +170,7 @@ GET /auth/verify?token=xxx&redirect=/projects/5
 
 For security, only relative paths (starting with `/`) are accepted. External URLs and protocol-relative URLs (`//evil.com`) are rejected and fall back to `Config.RedirectURL`.
 
-WebAuthn login also supports this — pass `?redirect=/path` to the `LoginFinish` endpoint, and the `redirect_url` in the JSON response will reflect it.
+WebAuthn login also supports dynamic redirect. The built-in `webauthn.js` automatically reads the `redirect` parameter from the current page URL and passes it to the `LoginFinish` endpoint, so no extra client-side code is needed.
 
 ## Configuration
 

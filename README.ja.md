@@ -162,7 +162,7 @@ GET /auth/verify?token=xxx&redirect=/projects/5
 
 セキュリティのため、`/` で始まる相対パスのみ許可されます。外部URLやプロトコル相対URL（`//evil.com`）は拒否され、`Config.RedirectURL` にフォールバックします。
 
-WebAuthn ログインも同様に対応しています。`LoginFinish` エンドポイントに `?redirect=/path` を渡すと、JSON レスポンスの `redirect_url` に反映されます。
+WebAuthn ログインも動的リダイレクトに対応しています。組み込みの `webauthn.js` は現在のページURLから `redirect` パラメータを自動的に読み取り、`LoginFinish` エンドポイントに渡すため、クライアント側の追加コードは不要です。
 
 ## 設定
 
