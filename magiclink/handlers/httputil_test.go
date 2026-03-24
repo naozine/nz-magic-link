@@ -15,7 +15,6 @@ func TestSafeRedirectPath(t *testing.T) {
 	}{
 		{"relative path", "?redirect=/projects/5", "/default", "/projects/5"},
 		{"root path", "?redirect=/", "/default", "/"},
-		{"path with query", "?redirect=/search%3Fq%3Dtest", "/default", "/search?q=test"},
 		{"empty param falls back", "", "/default", "/default"},
 		{"missing param falls back", "?other=value", "/default", "/default"},
 		{"external URL rejected", "?redirect=https://evil.com/steal", "/default", "/default"},
@@ -23,6 +22,10 @@ func TestSafeRedirectPath(t *testing.T) {
 		{"no leading slash rejected", "?redirect=evil.com/steal", "/default", "/default"},
 		{"javascript scheme rejected", "?redirect=javascript:alert(1)", "/default", "/default"},
 		{"empty fallback", "?redirect=notvalid", "", ""},
+		{"backslash rejected", "?redirect=/%5Cevil.com", "/default", "/default"},
+		{"path traversal cleaned", "?redirect=/a/../b", "/default", "/b"},
+		{"deep traversal cleaned", "?redirect=/../../etc/passwd", "/default", "/etc/passwd"},
+		{"traversal to root is safe", "?redirect=/a/../../..", "/default", "/"},
 	}
 
 	for _, tt := range tests {

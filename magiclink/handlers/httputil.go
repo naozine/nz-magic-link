@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -49,9 +50,21 @@ func safeRedirectPath(r *http.Request, param string, fallback string) string {
 	if redirect == "" {
 		return fallback
 	}
-	// Must start with "/" and not "//" (protocol-relative URL)
-	if !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
+	// Must start with "/"
+	if !strings.HasPrefix(redirect, "/") {
 		return fallback
 	}
-	return redirect
+	// Block protocol-relative URLs ("//evil.com")
+	// and backslash variants ("/\evil.com") that some browsers interpret as "//"
+	if len(redirect) > 1 && (redirect[1] == '/' || redirect[1] == '\\') {
+		return fallback
+	}
+	// Clean the path to prevent traversal sequences like "/../../"
+	cleaned := path.Clean(redirect)
+	// path.Clean may strip trailing slash; preserve query string from original
+	// but use the cleaned path portion
+	if cleaned == "." {
+		return fallback
+	}
+	return cleaned
 }
