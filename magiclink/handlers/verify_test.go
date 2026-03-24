@@ -342,6 +342,79 @@ func TestVerifyHandler_Success_Redirect_AndCookie(t *testing.T) {
 	}
 }
 
+func TestVerifyHandler_Success_DynamicRedirect(t *testing.T) {
+	tokenMgr, sessMgr, db := setup(t)
+
+	tok := "redirect-token"
+	tokenHash := hashTokenLocal(tok)
+	db.tokens[tokenHash] = mockToken{token: tok, email: "user@example.com", expiresAt: time.Now().Add(10 * time.Minute), used: false}
+
+	handler := VerifyHandler(tokenMgr, sessMgr, "/default", "")
+	rec := performGET(handler, "/auth/verify?token="+url.QueryEscape(tok)+"&redirect="+url.QueryEscape("/projects/5"))
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/projects/5" {
+		t.Fatalf("expected redirect to /projects/5, got %s", loc)
+	}
+}
+
+func TestVerifyHandler_Success_DynamicRedirect_FallbackToDefault(t *testing.T) {
+	tokenMgr, sessMgr, db := setup(t)
+
+	tok := "fallback-token"
+	tokenHash := hashTokenLocal(tok)
+	db.tokens[tokenHash] = mockToken{token: tok, email: "user@example.com", expiresAt: time.Now().Add(10 * time.Minute), used: false}
+
+	handler := VerifyHandler(tokenMgr, sessMgr, "/default", "")
+	rec := performGET(handler, "/auth/verify?token="+url.QueryEscape(tok))
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/default" {
+		t.Fatalf("expected redirect to /default, got %s", loc)
+	}
+}
+
+func TestVerifyHandler_Success_DynamicRedirect_RejectsExternalURL(t *testing.T) {
+	tokenMgr, sessMgr, db := setup(t)
+
+	tok := "external-token"
+	tokenHash := hashTokenLocal(tok)
+	db.tokens[tokenHash] = mockToken{token: tok, email: "user@example.com", expiresAt: time.Now().Add(10 * time.Minute), used: false}
+
+	handler := VerifyHandler(tokenMgr, sessMgr, "/safe", "")
+	rec := performGET(handler, "/auth/verify?token="+url.QueryEscape(tok)+"&redirect="+url.QueryEscape("https://evil.com/steal"))
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", rec.Code)
+	}
+	// Should fall back to /safe, not redirect to external URL
+	if loc := rec.Header().Get("Location"); loc != "/safe" {
+		t.Fatalf("expected redirect to /safe, got %s", loc)
+	}
+}
+
+func TestVerifyHandler_Success_DynamicRedirect_RejectsProtocolRelative(t *testing.T) {
+	tokenMgr, sessMgr, db := setup(t)
+
+	tok := "proto-token"
+	tokenHash := hashTokenLocal(tok)
+	db.tokens[tokenHash] = mockToken{token: tok, email: "user@example.com", expiresAt: time.Now().Add(10 * time.Minute), used: false}
+
+	handler := VerifyHandler(tokenMgr, sessMgr, "/safe", "")
+	rec := performGET(handler, "/auth/verify?token="+url.QueryEscape(tok)+"&redirect="+url.QueryEscape("//evil.com/steal"))
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/safe" {
+		t.Fatalf("expected redirect to /safe, got %s", loc)
+	}
+}
+
 // simple error type to tag expected errors
 type assertErr string
 

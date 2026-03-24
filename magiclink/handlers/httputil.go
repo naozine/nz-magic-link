@@ -41,3 +41,17 @@ func realIP(r *http.Request) string {
 	}
 	return host
 }
+
+// safeRedirectPath returns the redirect path from the query parameter if it is
+// a safe relative path (starts with "/", no scheme or host). Returns fallback otherwise.
+func safeRedirectPath(r *http.Request, param string, fallback string) string {
+	redirect := r.URL.Query().Get(param)
+	if redirect == "" {
+		return fallback
+	}
+	// Must start with "/" and not "//" (protocol-relative URL)
+	if !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
+		return fallback
+	}
+	return redirect
+}

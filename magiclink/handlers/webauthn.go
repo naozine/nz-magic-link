@@ -277,9 +277,11 @@ func (h *WebAuthnHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("LoginFinish: Authentication completed", "user_id", userID)
 
+	effectiveRedirect := safeRedirectPath(r, "redirect", h.successRedirectURL)
+
 	writeJSON(w, http.StatusOK, LoginFinishResponse{
 		Success:     true,
-		RedirectURL: h.successRedirectURL,
+		RedirectURL: effectiveRedirect,
 	})
 }
 
