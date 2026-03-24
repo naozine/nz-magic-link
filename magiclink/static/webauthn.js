@@ -91,7 +91,8 @@
 
                 this._conditionalController = null;
 
-                const finishResp = await fetch(this.config.endpoints.loginFinish, {
+                const finishURL = this._appendRedirect(this.config.endpoints.loginFinish);
+                const finishResp = await fetch(finishURL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -112,6 +113,22 @@
                 if (e.name === 'AbortError') return;
                 throw e;
             }
+        },
+
+        // Get the redirect parameter from the current page URL
+        _getRedirectParam() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('redirect') || '';
+        },
+
+        // Append redirect parameter to a URL if present on the current page
+        _appendRedirect(url) {
+            const redirect = this._getRedirectParam();
+            if (redirect) {
+                const sep = url.includes('?') ? '&' : '?';
+                return url + sep + 'redirect=' + encodeURIComponent(redirect);
+            }
+            return url;
         },
 
         // Abort any pending conditional login (called before other auth actions)
@@ -136,7 +153,8 @@
                     publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(startResp.options.publicKey)
                 });
 
-                const finishResp = await fetch(this.config.endpoints.loginFinish, {
+                const finishURL = this._appendRedirect(this.config.endpoints.loginFinish);
+                const finishResp = await fetch(finishURL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
