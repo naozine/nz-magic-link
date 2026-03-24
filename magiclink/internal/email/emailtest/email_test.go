@@ -169,7 +169,7 @@ func TestSendMagicLink_TLS(t *testing.T) {
 		SkipTLSVerify: true,
 	})
 
-	err = sender.SendMagicLink("user@example.com", "test-token-123", 30)
+	err = sender.SendMagicLink("user@example.com", "test-token-123", 30, "")
 	if err != nil {
 		t.Fatalf("SendMagicLink failed: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestSendMagicLink_STARTTLS(t *testing.T) {
 		SkipTLSVerify: true,
 	})
 
-	err = sender.SendMagicLink("user@example.com", "test-token-456", 15)
+	err = sender.SendMagicLink("user@example.com", "test-token-456", 15, "")
 	if err != nil {
 		t.Fatalf("SendMagicLink failed: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestSendMagicLink_TLS_AuthFailure(t *testing.T) {
 		SkipTLSVerify: true,
 	})
 
-	err = sender.SendMagicLink("user@example.com", "token", 30)
+	err = sender.SendMagicLink("user@example.com", "token", 30, "")
 	if err == nil {
 		t.Fatal("expected authentication error, got nil")
 	}
@@ -297,7 +297,7 @@ func TestSendMagicLink_NonASCII(t *testing.T) {
 		SkipTLSVerify: true,
 	})
 
-	err = sender.SendMagicLink("user@example.com", "token-jp", 30)
+	err = sender.SendMagicLink("user@example.com", "token-jp", 30, "")
 	if err != nil {
 		t.Fatalf("SendMagicLink failed: %v", err)
 	}
@@ -349,7 +349,7 @@ Welcome to {{.AppName}}!
 Click here: {{.MagicLink}}
 `
 	data := &CustomData{AppName: "MyApp"}
-	_, err = sender.SendMagicLinkWithTemplateAndData("user@example.com", "token-custom", 30, "Welcome", customTemplate, data, false)
+	_, err = sender.SendMagicLinkWithTemplateAndData("user@example.com", "token-custom", 30, "Welcome", customTemplate, data, false, "")
 	if err != nil {
 		t.Fatalf("SendMagicLinkWithTemplateAndData failed: %v", err)
 	}

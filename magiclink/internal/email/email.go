@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"net/smtp"
+	"net/url"
 	"reflect"
 	"text/template"
 )
@@ -82,30 +83,31 @@ func New(config Config) *Sender {
 }
 
 // SendMagicLink sends a magic link to the specified email address.
-func (s *Sender) SendMagicLink(to, token string, expiryMinutes int) error {
+func (s *Sender) SendMagicLink(to, token string, expiryMinutes int, redirectPath string) error {
 	// Use subject from config or default if not set
 	subject := s.Config.Subject
 	if subject == "" {
 		subject = "Your Magic Link for Authentication"
 	}
-	return s.SendMagicLinkWithSubject(to, token, expiryMinutes, subject)
+	return s.SendMagicLinkWithSubject(to, token, expiryMinutes, subject, redirectPath)
 }
 
 // SendMagicLinkWithSubject sends a magic link to the specified email address with a custom subject.
-func (s *Sender) SendMagicLinkWithSubject(to, token string, expiryMinutes int, subject string) error {
+func (s *Sender) SendMagicLinkWithSubject(to, token string, expiryMinutes int, subject string, redirectPath string) error {
 	// Create a simple struct that embeds BaseTemplateData
 	data := &struct {
 		BaseTemplateData
 	}{}
 
-	_, err := s.SendMagicLinkWithTemplateAndData(to, token, expiryMinutes, subject, s.Config.Template, data, false)
+	_, err := s.SendMagicLinkWithTemplateAndData(to, token, expiryMinutes, subject, s.Config.Template, data, false, redirectPath)
 	return err
 }
 
 // SendMagicLinkWithTemplateAndData sends a magic link with custom template and data.
 // The data parameter must be a struct that embeds BaseTemplateData.
 // If dryRun is true, returns the expanded template content as a string instead of sending email.
-func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinutes int, subject, templateStr string, data interface{}, dryRun bool) (string, error) {
+// redirectPath is appended to the magic link as a "redirect" query parameter if non-empty.
+func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinutes int, subject, templateStr string, data interface{}, dryRun bool, redirectPath string) (string, error) {
 	// Validate that data contains BaseTemplateData using reflection
 	dataValue := reflect.ValueOf(data)
 	if dataValue.Kind() == reflect.Ptr {
@@ -124,6 +126,9 @@ func (s *Sender) SendMagicLinkWithTemplateAndData(to, token string, expiryMinute
 
 	// Prepare the magic link
 	magicLink := fmt.Sprintf("%s%s?token=%s", s.Config.ServerAddr, s.Config.VerifyURL, token)
+	if redirectPath != "" {
+		magicLink += "&redirect=" + url.QueryEscape(redirectPath)
+	}
 
 	// Encode the FromName for email headers if it contains non-ASCII characters
 	encodedFromName := s.Config.FromName

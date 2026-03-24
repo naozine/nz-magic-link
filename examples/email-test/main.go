@@ -184,7 +184,7 @@ Content-Transfer-Encoding: 8bit
 		}{}
 
 		// Use SendMagicLinkWithTemplateAndData to send the email with custom template and subject
-		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, simpleData, req.Preview)
+		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, simpleData, req.Preview, "")
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send email: " + err.Error(),
@@ -308,7 +308,7 @@ Content-Transfer-Encoding: 8bit
 		}
 
 		// Use SendMagicLinkWithTemplateAndData to send the email with custom data
-		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, customData, req.Preview)
+		previewContent, err := ml.EmailSender.SendMagicLinkWithTemplateAndData(req.To, generatedToken, int(ml.TokenManager.TokenExpiry.Minutes()), req.Subject, customTemplate, customData, req.Preview, "")
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send custom email: " + err.Error(),

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +20,8 @@ import (
 
 // LoginRequest represents the request body for the login endpoint.
 type LoginRequest struct {
-	Email string `json:"email"`
+	Email    string `json:"email"`
+	Redirect string `json:"redirect,omitempty"`
 }
 
 // LoginResponse represents the response body for the login endpoint.
@@ -131,6 +134,22 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 			}
 		}
 
+		// Validate redirect parameter (from body or query)
+		redirectPath := req.Redirect
+		if redirectPath == "" {
+			redirectPath = safeRedirectPath(r, "redirect", "")
+		} else {
+			// Validate the redirect from the body using the same rules
+			if !strings.HasPrefix(redirectPath, "/") || (len(redirectPath) > 1 && (redirectPath[1] == '/' || redirectPath[1] == '\\')) {
+				redirectPath = ""
+			} else {
+				redirectPath = path.Clean(redirectPath)
+				if redirectPath == "." {
+					redirectPath = ""
+				}
+			}
+		}
+
 		// Generate a token
 		token0, err := tokenManager.Generate(req.Email)
 		if err != nil {
@@ -144,6 +163,9 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 		if isDevBypass(req.Email, devBypassEmails, devBypassPatterns) {
 			// Construct the magic link
 			magicLink := fmt.Sprintf("%s%s?token=%s", serverAddr, verifyURL, token0)
+			if redirectPath != "" {
+				magicLink += "&redirect=" + url.QueryEscape(redirectPath)
+			}
 
 			// Return the magic link in the response
 			writeJSON(w, http.StatusOK, LoginResponse{
@@ -154,7 +176,7 @@ func LoginHandler(tokenManager *token.Manager, emailSender *email.Sender, maxAtt
 		}
 
 		// Send the magic link
-		err = emailSender.SendMagicLink(req.Email, token0, int(tokenManager.TokenExpiry.Minutes()))
+		err = emailSender.SendMagicLink(req.Email, token0, int(tokenManager.TokenExpiry.Minutes()), redirectPath)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: "Failed to send magic link",
