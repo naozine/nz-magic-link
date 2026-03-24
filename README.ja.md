@@ -142,11 +142,27 @@ go get github.com/naozine/nz-magic-link
 
 ### 基本的な使い方
 
-1. Echo インスタンスを作成
-2. SMTP 設定で MagicLink インスタンスを構成
-3. 認証ハンドラを登録
-4. 認証ミドルウェアで保護されたルートを作成
-5. サーバーを起動
+1. SMTP 設定で MagicLink インスタンスを構成
+2. `ml.Handler()` をルーターにマウント
+3. `ml.ValidateSession(r)` で認証状態を確認
+4. サーバーを起動
+
+## ログイン後の動的リダイレクト
+
+デフォルトではログイン後に `Config.RedirectURL` にリダイレクトされます。ユーザーが元々アクセスしようとしたページに戻すには、`redirect` クエリパラメータをログインフローに引き継ぎます：
+
+1. アプリの認証ミドルウェアが未認証ユーザーを `/auth/login?redirect=/projects/5` にリダイレクト
+2. ログインフォームが `redirect` パラメータを verify URL に含める
+3. 認証成功後、ユーザーは `/projects/5` にリダイレクトされる
+
+```
+GET /auth/verify?token=xxx&redirect=/projects/5
+→ 302 Location: /projects/5
+```
+
+セキュリティのため、`/` で始まる相対パスのみ許可されます。外部URLやプロトコル相対URL（`//evil.com`）は拒否され、`Config.RedirectURL` にフォールバックします。
+
+WebAuthn ログインも同様に対応しています。`LoginFinish` エンドポイントに `?redirect=/path` を渡すと、JSON レスポンスの `redirect_url` に反映されます。
 
 ## 設定
 
@@ -159,10 +175,9 @@ config := magiclink.DefaultConfig()
 ### データベース設定
 
 - `DatabasePath`: データベースファイルのパス（デフォルト: `"magiclink.db"`）
-- `DatabaseType`: ストレージバックエンド — `"sqlite"` または `"leveldb"`（デフォルト: `"sqlite"`）
+- `DatabaseType`: ストレージバックエンド — `"sqlite"`（デフォルト: `"sqlite"`）
 - `DatabaseOptions`: バックエンド固有のオプション `map[string]string`（デフォルト: `{}`）
   - SQLite: `journal_mode`, `synchronous`, `cache_size`, `temp_store`
-  - LevelDB: `block_cache_capacity`, `write_buffer`, `compaction_table_size`
 
 ### メール設定
 

@@ -148,13 +148,29 @@ This example demonstrates passkey/WebAuthn authentication:
 
 Here's a brief overview of how to use the library:
 
-1. Create a new Echo instance
-2. Configure the MagicLink instance with your SMTP settings
-3. Register the authentication handlers
-4. Create protected routes using the authentication middleware
-5. Start the server
+1. Configure the MagicLink instance with your SMTP settings
+2. Mount `ml.Handler()` on your router
+3. Use `ml.ValidateSession(r)` to check authentication status
+4. Start the server
 
 The example in the repository provides a more comprehensive implementation that you can use as a starting point for your own application.
+
+## Dynamic Redirect After Login
+
+By default, users are redirected to `Config.RedirectURL` after login. To redirect users back to the page they originally requested, pass a `redirect` query parameter through the login flow:
+
+1. Your auth middleware redirects unauthenticated users to `/auth/login?redirect=/projects/5`
+2. The login form includes the `redirect` parameter in the verify URL
+3. After successful verification, the user is redirected to `/projects/5`
+
+```
+GET /auth/verify?token=xxx&redirect=/projects/5
+→ 302 Location: /projects/5
+```
+
+For security, only relative paths (starting with `/`) are accepted. External URLs and protocol-relative URLs (`//evil.com`) are rejected and fall back to `Config.RedirectURL`.
+
+WebAuthn login also supports this — pass `?redirect=/path` to the `LoginFinish` endpoint, and the `redirect_url` in the JSON response will reflect it.
 
 ## Configuration
 
@@ -167,10 +183,9 @@ config := magiclink.DefaultConfig()
 ### Database Configuration
 
 - `DatabasePath`: Path to the database file (default: `"magiclink.db"`)
-- `DatabaseType`: Storage backend — `"sqlite"` or `"leveldb"` (default: `"sqlite"`)
+- `DatabaseType`: Storage backend — `"sqlite"` (default: `"sqlite"`)
 - `DatabaseOptions`: Backend-specific options as `map[string]string` (default: `{}`)
   - SQLite options: `journal_mode`, `synchronous`, `cache_size`, `temp_store`
-  - LevelDB options: `block_cache_capacity`, `write_buffer`, `compaction_table_size`
 
 ### Email Configuration
 
