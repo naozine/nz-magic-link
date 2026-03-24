@@ -62,9 +62,10 @@ func VerifyHandler(tokenManager *token.Manager, sessionManager *session.Manager,
 			return
 		}
 
-		// Redirect to the specified URL or return a success response
-		if redirectURL != "" {
-			http.Redirect(w, r, redirectURL, http.StatusFound)
+		// Redirect: use "redirect" query param if safe, otherwise fall back to config
+		effectiveRedirect := safeRedirectPath(r, "redirect", redirectURL)
+		if effectiveRedirect != "" {
+			http.Redirect(w, r, effectiveRedirect, http.StatusFound)
 			return
 		}
 
