@@ -1,0 +1,27 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - gosec
+  settings:
+    errcheck:
+      # 戻り値のエラーを無視しても実害が小さい関数はプロジェクト全体で除外する
+      exclude-functions:
+        - (io.Closer).Close
+        - (*encoding/json.Encoder).Encode
+    gosec:
+      excludes:
+        # G104 (Errors unhandled) は errcheck と機能重複するため除外
+        - G104
+        # G706 (Log injection) は環境変数や DB 値の log.Printf で誤検知が多いため除外
+        - G706
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
