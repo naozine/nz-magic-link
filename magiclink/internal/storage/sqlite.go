@@ -227,7 +227,7 @@ func (s *SQLiteDB) MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHa
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.Exec(`UPDATE tokens SET used = 1 WHERE token_hash = ?`, tokenHash); err != nil {
 		return fmt.Errorf("failed to mark token as used: %w", err)
@@ -346,7 +346,7 @@ func (s *SQLiteDB) GetPasskeyCredentialsByUserID(userID string) ([]*PasskeyCrede
 	if err != nil {
 		return nil, fmt.Errorf("failed to query passkey credentials: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var credentials []*PasskeyCredential
 	for rows.Next() {

@@ -31,7 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create MagicLink instance: %v", err)
 	}
-	defer ml.Close()
+	defer func() { _ = ml.Close() }()
 
 	mux := http.NewServeMux()
 

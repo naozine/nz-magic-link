@@ -78,14 +78,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer ml.Close()
+	defer func() { _ = ml.Close() }()
 
 	// Load the dev bypass emails
 	devBypassEmails := make(map[string]bool)
 	if _, err := os.Stat(config.DevBypassEmailFilePath); err == nil {
 		file, err := os.Open(config.DevBypassEmailFilePath)
 		if err == nil {
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				email := strings.TrimSpace(scanner.Text())

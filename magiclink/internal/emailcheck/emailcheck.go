@@ -88,7 +88,7 @@ func LoadDomainFile(filePath string) (map[string]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open domain file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	domains := make(map[string]bool)
 	scanner := bufio.NewScanner(file)

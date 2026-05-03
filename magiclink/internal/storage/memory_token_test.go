@@ -11,7 +11,7 @@ func setupMemoryTokenStore(t *testing.T) (*MemoryTokenStore, *SQLiteDB) {
 	t.Helper()
 	inner := setupSQLite(t)
 	m := NewMemoryTokenStore(inner, time.Hour) // long interval so cleanup doesn't interfere
-	t.Cleanup(func() { m.Close() })
+	t.Cleanup(func() { _ = m.Close() })
 	return m, inner
 }
 

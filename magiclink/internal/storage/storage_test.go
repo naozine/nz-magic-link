@@ -18,7 +18,7 @@ func setupSQLite(t *testing.T) *SQLiteDB {
 	if err := db.Init(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 

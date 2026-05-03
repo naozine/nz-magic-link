@@ -205,10 +205,10 @@ func (s *Sender) sendWithTLS(to string, body []byte) error {
 	// Create an SMTP client (takes ownership of conn; Quit closes it)
 	client, err := smtp.NewClient(conn, s.Config.Host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
-	defer client.Quit()
+	defer func() { _ = client.Quit() }()
 
 	// Authenticate
 	auth := smtp.PlainAuth("", s.Config.Username, s.Config.Password, s.Config.Host)
@@ -252,7 +252,7 @@ func (s *Sender) sendWithSTARTTLS(to string, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to SMTP server: %w", err)
 	}
-	defer client.Quit()
+	defer func() { _ = client.Quit() }()
 
 	// Send EHLO
 	if err := client.Hello("localhost"); err != nil {
