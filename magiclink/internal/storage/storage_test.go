@@ -22,7 +22,6 @@ func setupSQLite(t *testing.T) *SQLiteDB {
 	return db
 }
 
-
 func TestMarkTokenUsedAndCreateSession_SQLite(t *testing.T) {
 	db := setupSQLite(t)
 

@@ -138,8 +138,8 @@ func (m *MemoryTokenStore) MarkTokenUsedAndCreateSession(tokenHash, sessionID, s
 
 // --- Delegated operations ---
 
-func (m *MemoryTokenStore) Init() error  { return m.inner.Init() }
-func (m *MemoryTokenStore) Ping() error  { return m.inner.Ping() }
+func (m *MemoryTokenStore) Init() error { return m.inner.Init() }
+func (m *MemoryTokenStore) Ping() error { return m.inner.Ping() }
 
 func (m *MemoryTokenStore) Close() error {
 	close(m.stopCh)
@@ -194,4 +194,3 @@ func (m *MemoryTokenStore) CleanupExpiredPasskeyChallenges() error {
 
 // Ensure MemoryTokenStore implements Database at compile time.
 var _ Database = (*MemoryTokenStore)(nil)
-

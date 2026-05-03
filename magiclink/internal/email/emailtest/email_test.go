@@ -81,7 +81,7 @@ func (s *testSession) Data(r io.Reader) error {
 	return nil
 }
 
-func (s *testSession) Reset() {}
+func (s *testSession) Reset()        {}
 func (s *testSession) Logout() error { return nil }
 
 // generateTestTLSConfig creates a self-signed certificate for testing.

@@ -23,8 +23,8 @@ func TestLoginHandler_ConcurrentAccess_RateLimiter(t *testing.T) {
 	handler := LoginHandler(
 		tokenMgr,
 		emailSender,
-		100,              // maxAttempts (high to avoid rate limit)
-		15*time.Minute,   // window
+		100,            // maxAttempts (high to avoid rate limit)
+		15*time.Minute, // window
 		map[string]bool{"test@example.com": true}, // bypass emails (skip SMTP)
 		nil, // bypass patterns
 		"http://localhost:8080",
@@ -98,10 +98,10 @@ func TestIsDevBypass_MultiplePatterns(t *testing.T) {
 		email    string
 		expected bool
 	}{
-		{"admin@example.com", true},   // exact match
-		{"user@test.com", true},       // pattern 1
-		{"bot-01@example.com", true},  // pattern 2
-		{"user@example.com", false},   // no match
+		{"admin@example.com", true},  // exact match
+		{"user@test.com", true},      // pattern 1
+		{"bot-01@example.com", true}, // pattern 2
+		{"user@example.com", false},  // no match
 	}
 
 	for _, tt := range tests {

@@ -52,9 +52,9 @@ type Config struct {
 	DevBypassEmailFilePath string
 
 	// Email domain quality check
-	EmailDomainWhitelistFile string                         // Path to whitelist file (1 domain per line)
-	EmailDomainBlacklistFile string                         // Path to blacklist file (1 domain per line)
-	ValidateEmailMX          bool                           // Enable MX record validation for unknown domains
+	EmailDomainWhitelistFile string                            // Path to whitelist file (1 domain per line)
+	EmailDomainBlacklistFile string                            // Path to blacklist file (1 domain per line)
+	ValidateEmailMX          bool                              // Enable MX record validation for unknown domains
 	OnEmailBlocked           func(email string, reason string) // Callback when email is blocked
 
 	// Token configuration
@@ -121,7 +121,7 @@ func DefaultConfig() Config {
 		SMTPUseTLS:             false,
 		SMTPSkipVerify:         false,
 		DevBypassEmailFilePath: "", // Empty by default
-		UseInMemoryTokens:     true,
+		UseInMemoryTokens:      true,
 		TokenExpiry:            30 * time.Minute,
 		SessionExpiry:          7 * 24 * time.Hour, // 7 days
 		CookieName:             "session",
@@ -157,15 +157,15 @@ func DefaultConfig() Config {
 // MagicLink is the main struct that holds the configuration and provides
 // methods for the magic link authentication system.
 type MagicLink struct {
-	Config          Config
-	DB              storage.Database
-	TokenManager    *token.Manager
-	EmailSender     *email.Sender
-	SessionManager  *session.Manager
-	WebAuthnService      *webauthn.Service // WebAuthn service for passkey authentication
-	DevBypassEmails      map[string]bool   // Map of email addresses that should bypass email sending
-	DevBypassPatterns    []string          // Wildcard patterns for bypass (e.g., "*@test.com")
-	EmailChecker         *emailcheck.Checker
+	Config            Config
+	DB                storage.Database
+	TokenManager      *token.Manager
+	EmailSender       *email.Sender
+	SessionManager    *session.Manager
+	WebAuthnService   *webauthn.Service // WebAuthn service for passkey authentication
+	DevBypassEmails   map[string]bool   // Map of email addresses that should bypass email sending
+	DevBypassPatterns []string          // Wildcard patterns for bypass (e.g., "*@test.com")
+	EmailChecker      *emailcheck.Checker
 }
 
 // New creates a new MagicLink instance with the provided configuration.

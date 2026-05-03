@@ -49,7 +49,7 @@ type RegisterStartRequest struct {
 }
 
 type RegisterStartResponse struct {
-	ChallengeID string                      `json:"challenge_id"`
+	ChallengeID string                       `json:"challenge_id"`
 	Options     *protocol.CredentialCreation `json:"options"`
 }
 
@@ -63,7 +63,7 @@ type LoginStartRequest struct {
 }
 
 type LoginStartResponse struct {
-	ChallengeID string                       `json:"challenge_id"`
+	ChallengeID string                        `json:"challenge_id"`
 	Options     *protocol.CredentialAssertion `json:"options"`
 }
 
