@@ -3,6 +3,12 @@ version: "2"
 run:
   timeout: 5m
 
+issues:
+  # デフォルトは max-same-issues: 3 / max-issues-per-linter: 50 で警告が抑制される。
+  # 同種警告が大量にあると見落とすので、両方とも上限解除する。
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
 linters:
   # standard = errcheck, govet, ineffassign, staticcheck, unused
   default: standard
