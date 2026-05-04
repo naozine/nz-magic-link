@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/naozine/nz-magic-link/magiclink"
 )
@@ -116,7 +117,13 @@ Content-Transfer-Encoding: 8bit
 
 	// Start the server
 	log.Println("Server started at http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	// Use http.Server with ReadHeaderTimeout to mitigate Slowloris attacks (gosec G114).
+	srv := &http.Server{
+		Addr:              ":8080",
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	log.Fatal(srv.ListenAndServe())
 }
 
 // Helper function to get environment variables with fallback
