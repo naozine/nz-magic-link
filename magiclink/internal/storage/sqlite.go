@@ -127,8 +127,8 @@ func (s *SQLiteDB) Init() error {
 	}
 
 	// Migrate: add backup flags to passkey_credentials (idempotent, ignore "duplicate column" errors)
-	s.db.Exec(`ALTER TABLE passkey_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0`)
-	s.db.Exec(`ALTER TABLE passkey_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE passkey_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE passkey_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0`)
 
 	// Create indexes
 	indexes := []string{

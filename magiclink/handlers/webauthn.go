@@ -296,7 +296,7 @@ func (h *WebAuthnHandlers) ServeClientScript(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	w.Header().Set("Content-Type", "application/javascript")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // Handler returns an http.Handler that serves all WebAuthn routes.
