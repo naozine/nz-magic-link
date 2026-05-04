@@ -170,7 +170,9 @@ Yahoo.CO.JP
   hotmail.com
 # another comment
 `
-	os.WriteFile(path, []byte(content), 0644)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	domains, err := LoadDomainFile(path)
 	if err != nil {

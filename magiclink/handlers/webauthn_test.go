@@ -96,7 +96,9 @@ func TestRegisterStart_EmailRequired(t *testing.T) {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
 	var resp ErrorResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if resp.Error != "Email is required" {
 		t.Errorf("unexpected error: %q", resp.Error)
 	}
@@ -110,7 +112,9 @@ func TestRegisterStart_InvalidEmail(t *testing.T) {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
 	var resp ErrorResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if resp.Error != "Invalid email format" {
 		t.Errorf("unexpected error: %q", resp.Error)
 	}
@@ -133,7 +137,9 @@ func TestRegisterStart_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	var resp RegisterStartResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if resp.ChallengeID != "test-challenge-id" {
 		t.Errorf("unexpected challenge ID: %q", resp.ChallengeID)
 	}

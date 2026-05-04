@@ -156,7 +156,9 @@ func TestLoginHandler_BlacklistedDomain(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	var resp LoginResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if resp.Message != "Magic link sent" {
 		t.Errorf("unexpected message: %q", resp.Message)
 	}
@@ -184,7 +186,9 @@ func TestLoginHandler_WhitelistedDomain(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	var resp LoginResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if resp.MagicLink == "" {
 		t.Error("expected magic_link in response (dev bypass)")
 	}
@@ -198,7 +202,9 @@ func TestLoginHandler_NilChecker(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	var resp LoginResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if resp.MagicLink == "" {
 		t.Error("expected magic_link in response")
 	}
