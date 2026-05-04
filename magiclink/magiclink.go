@@ -401,6 +401,7 @@ func (m *MagicLink) loadDevBypassEmails(filePath string) (err error) {
 	}
 
 	// Open the file
+	// #nosec G304 - filePath is admin-supplied via Config.DevBypassEmailFilePath
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open bypass email file: %w", err)

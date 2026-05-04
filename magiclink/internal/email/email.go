@@ -192,7 +192,8 @@ func (s *Sender) sendWithTLS(to string, body []byte) error {
 
 	// Create TLS configuration
 	tlsConfig := &tls.Config{
-		ServerName:         s.Config.Host,
+		ServerName: s.Config.Host,
+		// #nosec G402 - InsecureSkipVerify is opt-in via Config.SkipTLSVerify (e.g. self-signed certs in dev)
 		InsecureSkipVerify: s.Config.SkipTLSVerify,
 	}
 
@@ -261,7 +262,8 @@ func (s *Sender) sendWithSTARTTLS(to string, body []byte) error {
 
 	// Upgrade to TLS
 	tlsConfig := &tls.Config{
-		ServerName:         s.Config.Host,
+		ServerName: s.Config.Host,
+		// #nosec G402 - InsecureSkipVerify is opt-in via Config.SkipTLSVerify (e.g. self-signed certs in dev)
 		InsecureSkipVerify: s.Config.SkipTLSVerify,
 	}
 	if err := client.StartTLS(tlsConfig); err != nil {

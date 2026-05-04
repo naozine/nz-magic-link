@@ -170,7 +170,7 @@ Yahoo.CO.JP
   hotmail.com
 # another comment
 `
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
 

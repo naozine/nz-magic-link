@@ -67,7 +67,7 @@ func main() {
 
 	// Create bypass file if not exists
 	if _, err := os.Stat(".bypass_emails"); os.IsNotExist(err) {
-		if err := os.WriteFile(".bypass_emails", []byte("test@example.com\n"), 0644); err != nil {
+		if err := os.WriteFile(".bypass_emails", []byte("test@example.com\n"), 0600); err != nil {
 			log.Printf("failed to create .bypass_emails: %v", err)
 		}
 	}

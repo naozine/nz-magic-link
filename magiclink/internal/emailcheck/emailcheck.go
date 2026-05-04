@@ -84,6 +84,7 @@ func (c *Checker) notifyBlocked(email, reason string) {
 // Lines starting with # are comments, empty lines are skipped.
 // All domains are normalized to lowercase.
 func LoadDomainFile(filePath string) (map[string]bool, error) {
+	// #nosec G304 - filePath is admin-supplied via Config (LoadDomainFile)
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open domain file: %w", err)
