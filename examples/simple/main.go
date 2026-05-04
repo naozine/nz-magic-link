@@ -74,24 +74,30 @@ Content-Transfer-Encoding: 8bit
 		errorCode := r.URL.Query().Get("error")
 		description := r.URL.Query().Get("error_description")
 		statusCode := r.URL.Query().Get("code")
-		templates.ExecuteTemplate(w, "error.html", map[string]interface{}{
+		if err := templates.ExecuteTemplate(w, "error.html", map[string]interface{}{
 			"error":             errorCode,
 			"error_description": description,
 			"code":              statusCode,
-		})
+		}); err != nil {
+			log.Printf("template error: %v", err)
+		}
 	})
 
 	// Public routes
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		userID, authenticated := ml.ValidateSession(r)
-		templates.ExecuteTemplate(w, "home.html", map[string]interface{}{
+		if err := templates.ExecuteTemplate(w, "home.html", map[string]interface{}{
 			"authenticated": authenticated,
 			"userID":        userID,
-		})
+		}); err != nil {
+			log.Printf("template error: %v", err)
+		}
 	})
 
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
-		templates.ExecuteTemplate(w, "login.html", nil)
+		if err := templates.ExecuteTemplate(w, "login.html", nil); err != nil {
+			log.Printf("template error: %v", err)
+		}
 	})
 
 	// Protected routes
@@ -101,9 +107,11 @@ Content-Transfer-Encoding: 8bit
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
+		if err := templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
 			"userID": userID,
-		})
+		}); err != nil {
+			log.Printf("template error: %v", err)
+		}
 	})
 
 	// Start the server

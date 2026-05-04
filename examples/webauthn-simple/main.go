@@ -42,10 +42,12 @@ func main() {
 	// Home / Login page
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		userID, authenticated := ml.ValidateSession(r)
-		templates.ExecuteTemplate(w, "index.html", map[string]interface{}{
+		if err := templates.ExecuteTemplate(w, "index.html", map[string]interface{}{
 			"Authenticated": authenticated,
 			"UserID":        userID,
-		})
+		}); err != nil {
+			log.Printf("template error: %v", err)
+		}
 	})
 
 	// Protected route
@@ -55,14 +57,18 @@ func main() {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
-		templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
+		if err := templates.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
 			"UserID": userID,
-		})
+		}); err != nil {
+			log.Printf("template error: %v", err)
+		}
 	})
 
 	// Create bypass file if not exists
 	if _, err := os.Stat(".bypass_emails"); os.IsNotExist(err) {
-		os.WriteFile(".bypass_emails", []byte("test@example.com\n"), 0644)
+		if err := os.WriteFile(".bypass_emails", []byte("test@example.com\n"), 0644); err != nil {
+			log.Printf("failed to create .bypass_emails: %v", err)
+		}
 	}
 
 	log.Println("Server started at http://localhost:8080")

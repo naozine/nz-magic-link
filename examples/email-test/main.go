@@ -100,7 +100,9 @@ func main() {
 
 	// Routes
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		templates.ExecuteTemplate(w, "email-form.html", nil)
+		if err := templates.ExecuteTemplate(w, "email-form.html", nil); err != nil {
+			log.Printf("template error: %v", err)
+		}
 	})
 
 	mux.HandleFunc("POST /send-email", func(w http.ResponseWriter, r *http.Request) {
