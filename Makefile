@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Code Quality Targets
 # -----------------------------------------------------------------------------
-.PHONY: fmt vet lint test vuln check
+.PHONY: fmt vet lint test emailtest vuln check
 
 # Format code
 fmt:
@@ -24,10 +24,17 @@ test:
 	@echo ">> Running tests..."
 	go test ./...
 
+# Run the emailtest sub-module (in-process SMTP integration tests).
+# Kept as a separate Go module so its test-only dependencies (go-smtp,
+# go-sasl) aren't pulled into the main library's go.mod.
+emailtest:
+	@echo ">> Running emailtest (in-process SMTP integration)..."
+	cd magiclink/internal/email/emailtest && go test ./...
+
 # Check known vulnerabilities (要ネットワーク)
 vuln:
 	@echo ">> Running govulncheck..."
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 # Run all quality checks (lint は要 golangci-lint インストール)
-check: fmt vet lint test
+check: fmt vet lint test emailtest

@@ -30,6 +30,12 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Test (emailtest sub-module)
+        # Separate Go module so its test-only deps (go-smtp, go-sasl) don't
+        # leak into the main library's go.mod.
+        working-directory: magiclink/internal/email/emailtest
+        run: go test ./...
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
