@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.25' # マイナーまで指定し、check-latest で常に最新パッチを取得 (stdlib の脆弱性修正を自動反映)
           check-latest: true
