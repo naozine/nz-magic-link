@@ -14,6 +14,24 @@ type SQLiteDB struct {
 	db *sql.DB
 }
 
+// toUnix converts a time.Time to Unix seconds (UTC).
+// Zero time returns 0.
+func toUnix(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UTC().Unix()
+}
+
+// fromUnix converts Unix seconds back to time.Time in UTC.
+// Zero returns zero time.
+func fromUnix(n int64) time.Time {
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(n, 0).UTC()
+}
+
 // NewSQLiteDB creates a new SQLite database instance.
 func NewSQLiteDB(config Config) (*SQLiteDB, error) {
 	db, err := sql.Open("sqlite", config.Path)
@@ -61,15 +79,17 @@ func NewSQLiteDBFromDB(db *sql.DB) (*SQLiteDB, error) {
 
 // Init initializes the database schema.
 func (s *SQLiteDB) Init() error {
-	// Create tokens table
+	// Create tokens table.
+	// Timestamps are stored as INTEGER (Unix epoch seconds, UTC) so that
+	// comparison is unambiguous regardless of the host timezone.
 	_, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS tokens (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			token TEXT NOT NULL,
 			token_hash TEXT NOT NULL UNIQUE,
 			email TEXT NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			expires_at TIMESTAMP NOT NULL,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			expires_at INTEGER NOT NULL,
 			used BOOLEAN NOT NULL DEFAULT 0
 		)
 	`)
@@ -77,22 +97,22 @@ func (s *SQLiteDB) Init() error {
 		return fmt.Errorf("failed to create tokens table: %w", err)
 	}
 
-	// Create sessions table
+	// Create sessions table (INTEGER timestamps; see tokens table for rationale).
 	_, err = s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			session_id TEXT NOT NULL UNIQUE,
 			session_hash TEXT NOT NULL UNIQUE,
 			user_id TEXT NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			expires_at TIMESTAMP NOT NULL
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			expires_at INTEGER NOT NULL
 		)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to create sessions table: %w", err)
 	}
 
-	// Create passkey_credentials table
+	// Create passkey_credentials table (INTEGER timestamps; see tokens table for rationale).
 	_, err = s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS passkey_credentials (
 			id TEXT PRIMARY KEY,
@@ -102,22 +122,22 @@ func (s *SQLiteDB) Init() error {
 			aaguid TEXT,
 			attestation_type TEXT NOT NULL,
 			transports TEXT NOT NULL, -- JSON array
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to create passkey_credentials table: %w", err)
 	}
 
-	// Create passkey_challenges table
+	// Create passkey_challenges table (INTEGER timestamps; see tokens table for rationale).
 	_, err = s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS passkey_challenges (
 			id TEXT PRIMARY KEY,
 			user_id TEXT,
 			type TEXT NOT NULL,
 			challenge TEXT NOT NULL,
-			expires_at TIMESTAMP NOT NULL,
+			expires_at INTEGER NOT NULL,
 			session_data_json TEXT NOT NULL,
 			request_options_snapshot TEXT NOT NULL
 		)
@@ -159,7 +179,7 @@ func (s *SQLiteDB) Close() error {
 func (s *SQLiteDB) SaveToken(token, tokenHash, email string, expiresAt time.Time) error {
 	_, err := s.db.Exec(
 		`INSERT INTO tokens (token, token_hash, email, expires_at) VALUES (?, ?, ?, ?)`,
-		token, tokenHash, email, expiresAt,
+		token, tokenHash, email, toUnix(expiresAt),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
@@ -170,13 +190,13 @@ func (s *SQLiteDB) SaveToken(token, tokenHash, email string, expiresAt time.Time
 // GetTokenByHash retrieves a token by its hash.
 func (s *SQLiteDB) GetTokenByHash(tokenHash string) (string, string, time.Time, bool, error) {
 	var token, email string
-	var expiresAt time.Time
+	var expiresAtUnix int64
 	var used bool
 
 	err := s.db.QueryRow(
 		`SELECT token, email, expires_at, used FROM tokens WHERE token_hash = ?`,
 		tokenHash,
-	).Scan(&token, &email, &expiresAt, &used)
+	).Scan(&token, &email, &expiresAtUnix, &used)
 
 	if err == sql.ErrNoRows {
 		return "", "", time.Time{}, false, nil
@@ -185,7 +205,7 @@ func (s *SQLiteDB) GetTokenByHash(tokenHash string) (string, string, time.Time, 
 		return "", "", time.Time{}, false, fmt.Errorf("failed to get token: %w", err)
 	}
 
-	return token, email, expiresAt, used, nil
+	return token, email, fromUnix(expiresAtUnix), used, nil
 }
 
 // MarkTokenAsUsed marks a token as used.
@@ -202,7 +222,7 @@ func (s *SQLiteDB) CountRecentTokens(email string, since time.Time) (int, error)
 	var count int
 	err := s.db.QueryRow(
 		`SELECT COUNT(*) FROM tokens WHERE email = ? AND created_at > ?`,
-		email, since,
+		email, toUnix(since),
 	).Scan(&count)
 
 	if err != nil {
@@ -214,7 +234,7 @@ func (s *SQLiteDB) CountRecentTokens(email string, since time.Time) (int, error)
 
 // CleanupExpiredTokens removes expired tokens from the database.
 func (s *SQLiteDB) CleanupExpiredTokens() error {
-	_, err := s.db.Exec(`DELETE FROM tokens WHERE expires_at < datetime('now')`)
+	_, err := s.db.Exec(`DELETE FROM tokens WHERE expires_at < unixepoch()`)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired tokens: %w", err)
 	}
@@ -233,7 +253,7 @@ func (s *SQLiteDB) MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHa
 		return fmt.Errorf("failed to mark token as used: %w", err)
 	}
 	if _, err := tx.Exec(`INSERT INTO sessions (session_id, session_hash, user_id, expires_at) VALUES (?, ?, ?, ?)`,
-		sessionID, sessionHash, userID, expiresAt); err != nil {
+		sessionID, sessionHash, userID, toUnix(expiresAt)); err != nil {
 		return fmt.Errorf("failed to save session: %w", err)
 	}
 
@@ -244,7 +264,7 @@ func (s *SQLiteDB) MarkTokenUsedAndCreateSession(tokenHash, sessionID, sessionHa
 func (s *SQLiteDB) SaveSession(sessionID, sessionHash, userID string, expiresAt time.Time) error {
 	_, err := s.db.Exec(
 		`INSERT INTO sessions (session_id, session_hash, user_id, expires_at) VALUES (?, ?, ?, ?)`,
-		sessionID, sessionHash, userID, expiresAt,
+		sessionID, sessionHash, userID, toUnix(expiresAt),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save session: %w", err)
@@ -255,12 +275,12 @@ func (s *SQLiteDB) SaveSession(sessionID, sessionHash, userID string, expiresAt 
 // GetSessionByHash retrieves a session by its hash.
 func (s *SQLiteDB) GetSessionByHash(sessionHash string) (string, string, time.Time, error) {
 	var sessionID, userID string
-	var expiresAt time.Time
+	var expiresAtUnix int64
 
 	err := s.db.QueryRow(
 		`SELECT session_id, user_id, expires_at FROM sessions WHERE session_hash = ?`,
 		sessionHash,
-	).Scan(&sessionID, &userID, &expiresAt)
+	).Scan(&sessionID, &userID, &expiresAtUnix)
 
 	if err == sql.ErrNoRows {
 		return "", "", time.Time{}, nil
@@ -269,7 +289,7 @@ func (s *SQLiteDB) GetSessionByHash(sessionHash string) (string, string, time.Ti
 		return "", "", time.Time{}, fmt.Errorf("failed to get session: %w", err)
 	}
 
-	return sessionID, userID, expiresAt, nil
+	return sessionID, userID, fromUnix(expiresAtUnix), nil
 }
 
 // DeleteSession deletes a session from the database.
@@ -283,7 +303,7 @@ func (s *SQLiteDB) DeleteSession(sessionHash string) error {
 
 // CleanupExpiredSessions removes expired sessions from the database.
 func (s *SQLiteDB) CleanupExpiredSessions() error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at < datetime('now')`)
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at < unixepoch()`)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired sessions: %w", err)
 	}
@@ -302,7 +322,7 @@ func (s *SQLiteDB) SavePasskeyCredential(cred *PasskeyCredential) error {
 		(id, user_id, public_key, sign_count, aaguid, attestation_type, transports, backup_eligible, backup_state, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount, cred.AAGUID,
-		cred.AttestationType, string(transportsJSON), cred.BackupEligible, cred.BackupState, cred.CreatedAt, cred.UpdatedAt,
+		cred.AttestationType, string(transportsJSON), cred.BackupEligible, cred.BackupState, toUnix(cred.CreatedAt), toUnix(cred.UpdatedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save passkey credential: %w", err)
@@ -314,13 +334,14 @@ func (s *SQLiteDB) SavePasskeyCredential(cred *PasskeyCredential) error {
 func (s *SQLiteDB) GetPasskeyCredentialByID(credentialID string) (*PasskeyCredential, error) {
 	var cred PasskeyCredential
 	var transportsJSON string
+	var createdAtUnix, updatedAtUnix int64
 
 	err := s.db.QueryRow(`
 		SELECT id, user_id, public_key, sign_count, aaguid, attestation_type, transports, backup_eligible, backup_state, created_at, updated_at
 		FROM passkey_credentials WHERE id = ?`,
 		credentialID,
 	).Scan(&cred.ID, &cred.UserID, &cred.PublicKey, &cred.SignCount, &cred.AAGUID,
-		&cred.AttestationType, &transportsJSON, &cred.BackupEligible, &cred.BackupState, &cred.CreatedAt, &cred.UpdatedAt)
+		&cred.AttestationType, &transportsJSON, &cred.BackupEligible, &cred.BackupState, &createdAtUnix, &updatedAtUnix)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -328,6 +349,9 @@ func (s *SQLiteDB) GetPasskeyCredentialByID(credentialID string) (*PasskeyCreden
 	if err != nil {
 		return nil, fmt.Errorf("failed to get passkey credential: %w", err)
 	}
+
+	cred.CreatedAt = fromUnix(createdAtUnix)
+	cred.UpdatedAt = fromUnix(updatedAtUnix)
 
 	if err := json.Unmarshal([]byte(transportsJSON), &cred.Transports); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal transports: %w", err)
@@ -352,12 +376,16 @@ func (s *SQLiteDB) GetPasskeyCredentialsByUserID(userID string) ([]*PasskeyCrede
 	for rows.Next() {
 		var cred PasskeyCredential
 		var transportsJSON string
+		var createdAtUnix, updatedAtUnix int64
 
 		err := rows.Scan(&cred.ID, &cred.UserID, &cred.PublicKey, &cred.SignCount, &cred.AAGUID,
-			&cred.AttestationType, &transportsJSON, &cred.BackupEligible, &cred.BackupState, &cred.CreatedAt, &cred.UpdatedAt)
+			&cred.AttestationType, &transportsJSON, &cred.BackupEligible, &cred.BackupState, &createdAtUnix, &updatedAtUnix)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan passkey credential: %w", err)
 		}
+
+		cred.CreatedAt = fromUnix(createdAtUnix)
+		cred.UpdatedAt = fromUnix(updatedAtUnix)
 
 		if err := json.Unmarshal([]byte(transportsJSON), &cred.Transports); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal transports: %w", err)
@@ -385,7 +413,7 @@ func (s *SQLiteDB) DeletePasskeyCredential(credentialID string) error {
 // UpdatePasskeyCredentialSignCount updates the sign count for a passkey credential.
 func (s *SQLiteDB) UpdatePasskeyCredentialSignCount(credentialID string, signCount uint32) error {
 	_, err := s.db.Exec(`
-		UPDATE passkey_credentials SET sign_count = ?, updated_at = CURRENT_TIMESTAMP
+		UPDATE passkey_credentials SET sign_count = ?, updated_at = unixepoch()
 		WHERE id = ?`,
 		signCount, credentialID,
 	)
@@ -402,7 +430,7 @@ func (s *SQLiteDB) SavePasskeyChallenge(challenge *PasskeyChallenge) error {
 		(id, user_id, type, challenge, expires_at, session_data_json, request_options_snapshot)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		challenge.ID, challenge.UserID, challenge.Type, challenge.Challenge,
-		challenge.ExpiresAt, challenge.SessionDataJSON, challenge.RequestOptionsSnapshot,
+		toUnix(challenge.ExpiresAt), challenge.SessionDataJSON, challenge.RequestOptionsSnapshot,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save passkey challenge: %w", err)
@@ -413,13 +441,14 @@ func (s *SQLiteDB) SavePasskeyChallenge(challenge *PasskeyChallenge) error {
 // GetPasskeyChallenge retrieves a passkey challenge by ID.
 func (s *SQLiteDB) GetPasskeyChallenge(challengeID string) (*PasskeyChallenge, error) {
 	var challenge PasskeyChallenge
+	var expiresAtUnix int64
 
 	err := s.db.QueryRow(`
 		SELECT id, user_id, type, challenge, expires_at, session_data_json, request_options_snapshot
 		FROM passkey_challenges WHERE id = ?`,
 		challengeID,
 	).Scan(&challenge.ID, &challenge.UserID, &challenge.Type, &challenge.Challenge,
-		&challenge.ExpiresAt, &challenge.SessionDataJSON, &challenge.RequestOptionsSnapshot)
+		&expiresAtUnix, &challenge.SessionDataJSON, &challenge.RequestOptionsSnapshot)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -427,6 +456,8 @@ func (s *SQLiteDB) GetPasskeyChallenge(challengeID string) (*PasskeyChallenge, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to get passkey challenge: %w", err)
 	}
+
+	challenge.ExpiresAt = fromUnix(expiresAtUnix)
 
 	return &challenge, nil
 }
@@ -442,7 +473,7 @@ func (s *SQLiteDB) DeletePasskeyChallenge(challengeID string) error {
 
 // CleanupExpiredPasskeyChallenges removes expired passkey challenges.
 func (s *SQLiteDB) CleanupExpiredPasskeyChallenges() error {
-	_, err := s.db.Exec(`DELETE FROM passkey_challenges WHERE expires_at < datetime('now')`)
+	_, err := s.db.Exec(`DELETE FROM passkey_challenges WHERE expires_at < unixepoch()`)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired passkey challenges: %w", err)
 	}
@@ -456,7 +487,7 @@ func (s *SQLiteDB) Ping() error {
 
 // UpdateSessionExpiry updates the expiry time of a session by its hash.
 func (s *SQLiteDB) UpdateSessionExpiry(sessionHash string, newExpiresAt time.Time) error {
-	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE session_hash = ?`, newExpiresAt, sessionHash)
+	_, err := s.db.Exec(`UPDATE sessions SET expires_at = ? WHERE session_hash = ?`, toUnix(newExpiresAt), sessionHash)
 	if err != nil {
 		return fmt.Errorf("failed to update session expiry: %w", err)
 	}
