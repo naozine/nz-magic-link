@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -211,6 +212,164 @@ func TestPasskeyCredential_Migration_SQLite(t *testing.T) {
 	}
 	if !got.BackupEligible || !got.BackupState {
 		t.Error("expected backup flags to be preserved after migration")
+	}
+}
+
+// TestCleanupExpiredTokens_SQLite is a regression test for the timestamp comparison
+// bug: previously timestamps were stored as TEXT in mixed formats so cleanup never
+// removed anything. After switching to INTEGER (Unix epoch), this must pass.
+func TestCleanupExpiredTokens_SQLite(t *testing.T) {
+	db := setupSQLite(t)
+
+	// Insert one expired and one valid token.
+	if err := db.SaveToken("expired", "hash-expired", "user@example.com", time.Now().Add(-1*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveToken("valid", "hash-valid", "user@example.com", time.Now().Add(1*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.CleanupExpiredTokens(); err != nil {
+		t.Fatal(err)
+	}
+
+	expired, _, _, _, err := db.GetTokenByHash("hash-expired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expired != "" {
+		t.Error("expected expired token to be removed")
+	}
+
+	valid, _, _, _, err := db.GetTokenByHash("hash-valid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valid == "" {
+		t.Error("expected valid token to be preserved")
+	}
+}
+
+// TestCleanupExpiredSessions_SQLite — see TestCleanupExpiredTokens_SQLite for context.
+func TestCleanupExpiredSessions_SQLite(t *testing.T) {
+	db := setupSQLite(t)
+
+	if err := db.SaveSession("sid-expired", "shash-expired", "user@example.com", time.Now().Add(-1*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveSession("sid-valid", "shash-valid", "user@example.com", time.Now().Add(1*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.CleanupExpiredSessions(); err != nil {
+		t.Fatal(err)
+	}
+
+	expiredID, _, _, err := db.GetSessionByHash("shash-expired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expiredID != "" {
+		t.Error("expected expired session to be removed")
+	}
+
+	validID, _, _, err := db.GetSessionByHash("shash-valid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validID == "" {
+		t.Error("expected valid session to be preserved")
+	}
+}
+
+// TestCleanupExpiredPasskeyChallenges_SQLite — see TestCleanupExpiredTokens_SQLite for context.
+func TestCleanupExpiredPasskeyChallenges_SQLite(t *testing.T) {
+	db := setupSQLite(t)
+
+	expired := &PasskeyChallenge{
+		ID:                     "ch-expired",
+		Type:                   "attestation",
+		Challenge:              "challenge-expired",
+		ExpiresAt:              time.Now().Add(-1 * time.Hour),
+		SessionDataJSON:        "{}",
+		RequestOptionsSnapshot: "{}",
+	}
+	valid := &PasskeyChallenge{
+		ID:                     "ch-valid",
+		Type:                   "assertion",
+		Challenge:              "challenge-valid",
+		ExpiresAt:              time.Now().Add(1 * time.Hour),
+		SessionDataJSON:        "{}",
+		RequestOptionsSnapshot: "{}",
+	}
+	if err := db.SavePasskeyChallenge(expired); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SavePasskeyChallenge(valid); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.CleanupExpiredPasskeyChallenges(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetPasskeyChallenge("ch-expired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Error("expected expired challenge to be removed")
+	}
+
+	got, err = db.GetPasskeyChallenge("ch-valid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Error("expected valid challenge to be preserved")
+	}
+}
+
+// TestCountRecentTokens_SQLite is a regression test for the rate-limit counting bug.
+// Previously CountRecentTokens always returned 0 due to mixed-format string comparison.
+func TestCountRecentTokens_SQLite(t *testing.T) {
+	db := setupSQLite(t)
+
+	for i := 0; i < 3; i++ {
+		hash := fmt.Sprintf("hash-%d", i)
+		if err := db.SaveToken(fmt.Sprintf("tok-%d", i), hash, "user@example.com", time.Now().Add(30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.SaveToken("tok-other", "hash-other", "other@example.com", time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	// All three tokens for user@example.com should be counted within a generous window.
+	count, err := db.CountRecentTokens("user@example.com", time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Errorf("expected count 3 within 1h window, got %d", count)
+	}
+
+	// Different email should have 1.
+	count, err = db.CountRecentTokens("other@example.com", time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("expected count 1 for other email, got %d", count)
+	}
+
+	// Future "since" should yield 0 (nothing created after a future point).
+	count, err = db.CountRecentTokens("user@example.com", time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("expected count 0 with future since, got %d", count)
 	}
 }
 
